@@ -1,7 +1,7 @@
-"""Two Geant4 readings added for NEXT-100 (docs/dev/decisions.md, 20 and 21): a bulk wavelength shifter's mean photon
-count (WLSMEANNUMBERPHOTONS, a weight and a parameter key) and time profile ("delta", Geant4's default, or
-"exponential", the material's wls_time_profile setting); a unified ground dielectric_metal of sigma_alpha 0, whose lobe
-Geant4 reflects about the global normal (UNIFIED_METAL_FLAT, DIELECTRIC_METAL_FLAT), with no sigma_alpha key."""
+"""Two Geant4 readings: a bulk wavelength shifter's mean photon count (WLSMEANNUMBERPHOTONS, a weight and a parameter
+key) and time profile ("delta", Geant4's default, or "exponential", the material's wls_time_profile setting); a
+unified ground dielectric_metal of sigma_alpha 0, whose lobe Geant4 reflects about the global normal
+(UNIFIED_METAL_FLAT, DIELECTRIC_METAL_FLAT), with no sigma_alpha key."""
 
 import dataclasses
 
@@ -37,7 +37,6 @@ def _const(key, v):
     return schema.Property(key, np.asarray(v, np.float64))
 
 
-# ----------------------------------------------------------------------------------------- the bulk WLS photon count
 def test_bulk_mean_photon_count_is_the_weight_and_a_key(df):
     sh = _with(df.materials["Shifter"], WLSMEANNUMBERPHOTONS=_const("WLSMEANNUMBERPHOTONS", 0.65))
     assert rules.medium(sh).params["wls"]["yield"] == 0.65
@@ -53,7 +52,6 @@ def test_bulk_mean_photon_count_is_the_weight_and_a_key(df):
         rules.medium(_with(sh, WLSMEANNUMBERPHOTONS=tab))
 
 
-# ------------------------------------------------------------------------------------------------ the time profile
 def test_time_profile_delta_is_geant4s_default_and_exponential_is_declared(df):
     sh = _with(df.materials["Shifter"], WLSTIMECONSTANT=_const("WLSTIMECONSTANT", 1.2))
     e = rules.medium(sh)
@@ -76,7 +74,6 @@ def test_reemit_delay_by_profile():
     assert float(lam_d) == float(lam_e)  # the wavelength draw does not depend on the profile
 
 
-# --------------------------------------------------------------------------------- unified ground, sigma_alpha 0
 def _surface(value, eff=None, model="unified"):
     props = {"REFLECTIVITY": _const("REFLECTIVITY", 0.9), "SPECULARSPIKECONSTANT": _const("SPECULARSPIKECONSTANT", 0.2),
              "SPECULARLOBECONSTANT": _const("SPECULARLOBECONSTANT", 0.3),

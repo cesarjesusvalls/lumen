@@ -77,7 +77,7 @@ def test_tank_scene_as_lumen_reads_it():
     p = view.payload
     assert view.errors == []
     assert p["meta"]["detector_volume"] == "TankLV" and not p["meta"]["detector_guessed"]
-    assert p["meta"]["up"] == "z"  # drawn vertical unless the detector's program says otherwise
+    assert p["meta"]["up"] == "z"
     water = next(m for m in p["materials"].values() if m["short"] == "Water")
     assert water["status"] == "medium" and "absorption" in water["channels"]
     rindex = next(q for q in water["properties"] if q["key"] == "RINDEX")

@@ -327,7 +327,7 @@ def _dielectric_metal_flat(p, ctx):
                           absorb=a * (1.0 - p["eff"]))  # fmt: skip
 
 
-# dielectric_metal, unified, ground, sigma_alpha 0, detecting with EFFICIENCY eff (``_flat_shares``)
+# dielectric_metal, unified, ground, sigma_alpha 0, detecting with EFFICIENCY eff
 DIELECTRIC_METAL_FLAT = SurfaceType(
     "dielectric_metal_flat",
     ("R", "p_spike", "p_lobe", "p_back", "eff"),
@@ -383,7 +383,7 @@ UNIFIED_METAL = SurfaceType(
     _unified_metal,
     _sigma_alpha,
 )
-# dielectric_metal, unified, ground, sigma_alpha 0: the lobe is a mirror about the normal (``_flat_shares``)
+# dielectric_metal, unified, ground, sigma_alpha 0: the lobe is a mirror about the normal
 UNIFIED_METAL_FLAT = SurfaceType(
     "unified_metal_flat",
     ("R", "p_spike", "p_lobe", "p_back"),

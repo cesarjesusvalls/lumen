@@ -5,8 +5,7 @@
     lumen view tank.gdml --recipe my_recipes.py:TANK                   # with a recipe of your own
     lumen view sk --out sk.view.json       # write the scene; ``lumen view --scene sk.view.json`` serves it again
 
-The server binds 127.0.0.1 by default (from a laptop, forward it: ``ssh -L 8765:127.0.0.1:8765 <node>``),
-uses only the standard library, and builds the scene once, before it starts.
+The server binds 127.0.0.1 by default and builds the scene once, before it starts.
 """
 
 from __future__ import annotations
@@ -69,7 +68,7 @@ def handler(scene_gz: bytes):
             self.end_headers()
             self.wfile.write(body)
 
-        def log_message(self, fmt, *args):  # quiet: one line per page load, not per file
+        def log_message(self, fmt, *args):
             if self.path.startswith("/scene.json"):
                 sys.stderr.write(f"[lumen view] scene sent to {self.client_address[0]}\n")
 

@@ -1,11 +1,3 @@
-// lumen GDML viewer: the geometry of a GDML file and how lumen reads it (lumen.viewer.scene builds scene.json).
-//
-// three.js (r128, global THREE, as LUCiD's viewer loads it) draws every logical volume as one InstancedMesh over
-// its placed copies (world matrices from the scene, metres). The sidebar lists volumes, materials, surfaces, sensor
-// groups and the import report; the right panel shows the selection: a volume's solid and placement path, a
-// material's or surface's lumen reading (status, channels, which property feeds which lumen parameter) and a plot of
-// any table against wavelength, with the recipe's wavelength range shaded.
-
 const $ = (id) => document.getElementById(id);
 const HC = 1239.841984;  // eV nm
 const ROLE = {
@@ -37,7 +29,7 @@ let renderer, scene, camera, controls, light;
 let axScene = null, axCam = null;  // the axis triad, drawn in a corner with the camera's orientation
 const AXES = { x: [1, 0, 0], y: [0, 1, 0], z: [0, 0, 1] };
 const ACROSS = { z: ['x', 'y'], x: ['y', 'z'], y: ['z', 'x'] };  // the horizontal axes under each up, right-handed
-let upAxis = 'z';             // drawn vertical: z as LUCiD (and WCSim's tanks); the scene's meta.up may say otherwise
+let upAxis = 'z';             // the axis drawn vertical; the scene's meta.up sets it
 let clipPlane = new THREE.Plane(new THREE.Vector3(1, 0, 0), 0);
 let clipAxis = 'off', clipFlip = false;
 let sceneBox = new THREE.Box3(), envBox = new THREE.Box3();  // what is drawn, and the detector volume itself
@@ -52,7 +44,6 @@ let plotState = null;         // {title, series: [{e, v, label, color}], unit}
 let logY = false, energyX = false;
 let dirty = true;             // draw a frame: the view or the scene changed (no frame is drawn while idle)
 
-// ------------------------------------------------------------------------------------------------- utilities
 function setStatus(s) { $('status').textContent = s || ''; }
 function toast(msg) { const t = $('toast'); t.textContent = msg; t.classList.add('visible'); clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove('visible'), 2200); }
 function esc(s) { return String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
@@ -79,7 +70,6 @@ function viridis(t) {
 }
 function badge(text, cls, title = '') { return `<span class="badge ${cls}" title="${esc(title)}">${esc(text)}</span>`; }
 
-// --------------------------------------------------------------------------------------------- lumen's reading
 function material(name) { return name ? S.materials[name] : null; }
 function lvRole(v) {
   if (v.sensor) return 'sensor';
@@ -119,7 +109,6 @@ function lvColor(i) {
 }
 let matColors = {}, maxDepth = 1;
 
-// ------------------------------------------------------------------------------------------------------ loading
 async function load() {
   $('loadStatus').textContent = 'fetching scene.json ...';
   const r = await fetch('scene.json');
@@ -149,7 +138,6 @@ async function load() {
   });
 }
 
-// ------------------------------------------------------------------------------------------------------- three
 function initThree() {
   const host = $('panel3d');
   renderer = new THREE.WebGLRenderer({ antialias: true, logarithmicDepthBuffer: true, preserveDrawingBuffer: true });
@@ -298,7 +286,7 @@ function refreshMaterials() {
 
 function fitCamera() {
   if (sceneBox.isEmpty()) return;
-  // As LUCiD: from outside, across the up axis, 45 degrees round it and about 17 degrees above (a little closer).
+  // From outside the scene, 45 degrees around the up axis and about 17 degrees above the horizontal.
   const c = sceneBox.getCenter(new THREE.Vector3()), ext = sceneBox.getSize(new THREE.Vector3());
   const [a, b] = ACROSS[upAxis], half = Math.max(ext[a], ext[b], ext[upAxis]) / 2;
   const dist = half * 3.2, azim = Math.PI * 0.25, elev = 0.3;
@@ -319,7 +307,6 @@ function updateClip() {
   clipPlane.set(n, clipFlip ? -pos : pos); dirty = true;
 }
 
-// ------------------------------------------------------------------------------------------------------ picking
 function pick(e) {
   const rect = renderer.domElement.getBoundingClientRect();
   const ndc = new THREE.Vector2(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
@@ -345,7 +332,6 @@ function showPicked(gid, lv) {
   pickHelper.applyMatrix4(m4); pickHelper.renderOrder = 5; scene.add(pickHelper); dirty = true;
 }
 
-// ---------------------------------------------------------------------------------------------------- selection
 function lvsOfMaterial(name) { const s = new Set(); S.volumes.forEach((v, i) => { if (v.material === name) s.add(i); }); return s; }
 function lvsOfSurface(name) { const s = new Set(); S.volumes.forEach((v, i) => { if (lvSurfaces(v).includes(name)) s.add(i); }); return s; }
 function lvsOfGroup(name) { const s = new Set(); S.volumes.forEach((v, i) => { if (v.sensor === name) s.add(i); }); return s; }
@@ -361,7 +347,6 @@ function select(sel) {
   renderDetails(); renderList();
 }
 
-// --------------------------------------------------------------------------------------------------------- lists
 function renderList() {
   const q = $('search').value.trim().toLowerCase();
   const el = $('list');
@@ -481,7 +466,6 @@ function reportHtml() {
   return h;
 }
 
-// ------------------------------------------------------------------------------------------------------ details
 function lvLink(name) {
   const i = S.volumes.findIndex((v) => v.name === name);
   return i < 0 ? esc(name) : `<a class="lnk" data-lv="${i}">${esc(S.volumes[i].short)}</a>`;
@@ -626,7 +610,6 @@ function groupHtml(name) {
     ${kv('placed', lvs.reduce((a, i) => a + S.volumes[i].inside, 0).toLocaleString())}</div>`;
 }
 
-// ------------------------------------------------------------------------------------------------------- the plot
 function choosePlot(id) {
   const [kind, k] = id.split(':');
   let p = null; let owner = null;
@@ -692,7 +675,6 @@ function drawPlot() {
   c.onmouseleave = () => { $('plotTip').style.display = 'none'; };
 }
 
-// ------------------------------------------------------------------------------------------------------ legend
 function renderLegend() {
   const el = $('legend'); let items = []; let title = '';
   if (colorMode === 'role') {
@@ -714,7 +696,6 @@ function renderLegend() {
   el.innerHTML = `<div class="lt">${title}</div>` + items.map(([c, t]) => `<div class="li"><span class="sw" style="background:${c}"></span>${esc(t)}</div>`).join('');
 }
 
-// -------------------------------------------------------------------------------------------------------- wiring
 function group(id, fn) {
   $(id).addEventListener('click', (e) => {
     const b = e.target.closest('button'); if (!b) return;

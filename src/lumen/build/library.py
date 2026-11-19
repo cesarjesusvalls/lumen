@@ -31,10 +31,9 @@ Skins and borders
     with the sensor set's ``border_into`` group (``border_library``).
 Sensor groups
     ``border_into`` with surface reader ``lumen:geant4``: the borders into the group's volumes are sensors through
-    the surface's own detection, and so is a group volume's own skin when it detects (``skin_sensor_lvs``: Geant4's
-    photocathode skin on a sensitive volume), where Geant4's rule picks it (``settings["efficiency_on_entry"]``
-    replaces the efficiency on entry, the sensors are named ``<settings["name_prefix"] or the group
-    name>:<surface>``); with sensor model ``lumen:pmt`` every
+    the surface's own detection, and so is a group volume's own skin when it detects, where Geant4's rule picks it
+    (``settings["efficiency_on_entry"]`` replaces the efficiency on entry, the sensors are named
+    ``<settings["name_prefix"] or the group name>:<surface>``); with sensor model ``lumen:pmt`` every
     absorption entering is counted (efficiency 1 on entry) and the PMT's QE, CE and efficiency apply after tracking
     (``lumen.sensors``). ``any_entry`` with surface reader ``lumen:counting``: a counting sensor of efficiency
     ``settings["efficiency"]`` on every placement of the group's volumes.
@@ -618,8 +617,8 @@ def skin_sensor_lvs(df, tree, sensor_pvs) -> dict:
     """Return {LV: skin surface} of the sensor volumes whose own skin detects (EFFICIENCY > 0).
 
     Geant4 detects there when the boundary process picks that skin and invokes the sensitive detector of the volume
-    entered (``/process/optical/boundary/setInvokeSD``, nexus's PMTs and SiPMs): the skin is the sensor's surface,
-    read like a border into it (SensorBinding entry "skin"), never a surface of its own.
+    entered (``/process/optical/boundary/setInvokeSD``): the skin is the sensor's surface, read like a border into it
+    (SensorBinding entry "skin"), never a surface of its own.
     """
     lvs = {tree.by_name[p].lv for p in sensor_pvs}
     return {lv: s for lv, s in _effective_skins(df).items()

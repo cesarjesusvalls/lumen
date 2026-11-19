@@ -3,12 +3,10 @@
     meshes = Tessellator(df)
     m = meshes.solid("PMTGlass")          # SolidMesh(vertices (n, 3) float32, triangles (k, 3) uint32, exact, note)
 
-Each GDML solid follows Geant4's parameters as ``lumen.build.solids`` reads them (full lengths where GDML gives full
-lengths, polyhedra radii as apothems, the boolean and multi-union transforms of ``lowering.boolean_pose``). Curved
-faces are cut into flat ones (``SEGMENTS`` per turn). Booleans are evaluated exactly on those meshes with
-``manifold3d`` (the ``view`` extra); without it, or where an operand is not a closed surface (an open tessellated
-solid), a union shows both operands and a subtraction or intersection its first one, with ``exact`` False and the
-reason in ``note``. Display only: the navigator never reads these meshes.
+Each solid follows GDML's parameters (full lengths, polyhedra radii as apothems). Curved faces are cut into flat ones
+(``SEGMENTS`` per turn). Booleans are evaluated exactly on those meshes with ``manifold3d`` (the ``view`` extra);
+without it, or where an operand is not a closed surface (an open tessellated solid), a union shows both operands and a
+subtraction or intersection its first one, with ``exact`` False and the reason in ``note``.
 """
 
 from __future__ import annotations
@@ -20,14 +18,14 @@ import numpy as np
 
 from lumen.build.lowering import boolean_pose
 
-try:  # optional: exact booleans
+try:
     import manifold3d as _mf
 except ImportError:  # pragma: no cover - exercised only without the extra
     _mf = None
 
 SEGMENTS = 48  # flat faces per full turn of a curved face, for a solid drawn a few times
 MIN_SEGMENTS = 6  # per arc, however short
-LOD = ((50, 48), (500, 32), (5000, 20), (None, 12))  # (solid drawn fewer than n times, faces per turn): ~1e6 triangles
+LOD = ((50, 48), (500, 32), (5000, 20), (None, 12))  # (solid drawn fewer than n times, faces per turn)
 CURVE_POINTS = 16  # points along a hyperbolic or parabolic profile
 TWOPI = 2 * math.pi
 PHI_FULL = 1e-9  # rad: a phi range this close to 2 pi is the full turn
@@ -43,7 +41,6 @@ class SolidMesh:
     note: str = ""
 
 
-# ---------------------------------------------------------------------------------------------------- primitives
 def _orient(loop):
     """Return a closed (r, z) or (x, y) loop counter-clockwise (positive area)."""
     p = np.asarray(loop, float)
@@ -55,7 +52,7 @@ def _triangulate(loops):
     """Return triangles (k, 3) indexing the concatenated loops (outer CCW, holes CW)."""
     if _mf is not None:
         return np.asarray(_mf.triangulate([np.asarray(lp, float) for lp in loops]), np.int64).reshape(-1, 3)
-    p = np.asarray(loops[0], float)  # a fan: right for the convex caps the primitives have without the extra
+    p = np.asarray(loops[0], float)  # a fan: correct for a convex outer loop without holes
     return np.array([(0, i, i + 1) for i in range(1, len(p) - 1)], np.int64)
 
 
@@ -134,7 +131,7 @@ def _hull(points):
     p = np.asarray(points, float)
     if _mf is not None:
         return _mf.Manifold.hull_points(p)
-    from scipy.spatial import ConvexHull  # the hull without the extra
+    from scipy.spatial import ConvexHull
 
     h = ConvexHull(p)
     return _closed(p, np.asarray(h.simplices, np.int64))
@@ -257,7 +254,7 @@ def primitive(s, df, seg=SEGMENTS):
 
 
 def _polytope_vertices(s):
-    """Return the corners of a convex polytope solid (trd, para, trap, arb8, tet), m (Geant4's, as solids.py)."""
+    """Return the corners of a convex polytope solid (trd, para, trap, arb8, tet), m."""
     g = lambda k: float(s.params.get(k, 0.0))  # noqa: E731
     if s.type == "tet":
         return s.vertices
@@ -329,7 +326,6 @@ def _xtru(verts, sections):
     return _closed(v, np.asarray(tris, np.int64))
 
 
-# ------------------------------------------------------------------------------------------------- booleans, all
 def _manifold(mesh):
     """Return a manifold3d.Manifold of (vertices, triangles), or None when they do not bound a solid."""
     if _mf is None:
@@ -368,7 +364,7 @@ def _concat(meshes):
 
 
 class Tessellator:
-    """The display meshes of a detector file's solids, each solid tessellated once (see the module docstring)."""
+    """The display meshes of a detector file's solids, each solid tessellated once."""
 
     def __init__(self, df, uses=None):
         self.df = df

@@ -6,7 +6,7 @@
     lumen validate overlaps coinc_sib
     lumen validate report DIR [DIR ...] [--out docs/validation/report.md]
     lumen validate list                                                      # the checks every manifest lists
-    lumen view sk [--detector NAME] [--port 8765] [--open] [--out FILE]      # the GDML viewer (lumen.viewer)
+    lumen view sk [--detector NAME] [--port 8765] [--open] [--out FILE]      # the GDML viewer
 
 A check's name is a manifest entry (``lumen.validate.references``): lumen's own detectors, or any detector package's
 under ``lumen.detectors``, or a manifest given with ``--references``. Records go to ``--out`` (default
@@ -50,7 +50,7 @@ def _parser() -> argparse.ArgumentParser:
     w.add_argument("--port", type=int, default=8765, help="the port to serve on (default 8765)")
     w.add_argument("--open", action="store_true", help="open the page in a browser")
     w.add_argument("--max-instances", type=int, help="the most placed copies to draw")
-    w.add_argument("--up", choices=("x", "y", "z"), help="the axis drawn vertical at first (default z; next100: y)")
+    w.add_argument("--up", choices=("x", "y", "z"), help="the axis drawn vertical at first")
     return ap
 
 

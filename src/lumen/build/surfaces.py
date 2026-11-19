@@ -159,7 +159,7 @@ class SensorBinding:
     border bound to this sensor do, any other entry resolves as if the PV were no sensor (Geant4's photocathode is a
     border surface, not the volume); "skin" -- the crossings where Geant4's rule picks the PV's own skin surface (no
     border for the pair; post's skin first when entering from its mother, else after pre's): the photocathode is the
-    sensitive volume's skin (nexus's PMTs and SiPMs). A "skin" sensor PV must be opaque (no photon leaves it).
+    sensitive volume's skin. A "skin" sensor PV must be opaque (no photon leaves it).
     """
 
     sensor: str

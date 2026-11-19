@@ -82,7 +82,7 @@ def test_media(df):
     assert [c.name for c in e.medium.channels] == ["rayleigh"]
     w = rules.medium(df.materials["Shifter"], "shifter")
     assert [c.name for c in w.medium.channels] == ["wls"] and w.params["wls"]["yield"] == 1.0
-    assert w.medium.channels[0].time_profile == "delta"  # G4OpticalParameters' default (decision 20)
+    assert w.medium.channels[0].time_profile == "delta"  # G4OpticalParameters' default
     x = rules.medium(df.materials["Shifter"], "shifter", wls_time_profile="exponential")
     assert x.medium.channels[0].time_profile == "exponential"
     assert w.medium.name == "shifter" and repr(w.medium.channels[0].reemit) == "EnergySpectrum(shifter.WLSCOMPONENT)"
@@ -318,5 +318,5 @@ def test_wls_mean_number_of_photons_is_the_yield(tmp_path_factory, mean):
     dfm = read_toy(tmp_path_factory, toy, "toy_mean.gdml")
     e = rules.wls_film(dfm.materials["Shifter"], dfm.materials["Liq"], dfm.surfaces["paint"], 1e-6, (0, 0, 1))
     assert abs(float(e.params["eta"]) - mean) < 1e-12
-    # in a bulk medium too: the WLS channel's yield (a weight on the re-emitted photon), decision 20
+    # in a bulk medium too: the WLS channel's yield (a weight on the re-emitted photon)
     assert abs(float(rules.medium(dfm.materials["Shifter"]).params["wls"]["yield"]) - mean) < 1e-12

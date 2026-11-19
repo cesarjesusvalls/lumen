@@ -18,7 +18,7 @@ opaque (Geant4's NoRINDEX kill); a material named Water without RAYLEIGH gets Ge
 (``geant4_rayleigh``). A wavelength shifter (G4OpWLS) re-emits WLSMEANNUMBERPHOTONS photons on average (Geant4 draws
 a Poisson count; lumen tracks one photon of that weight, the same expectation), 1 without it, after a delay of
 WLSTIMECONSTANT under Geant4's time profile: "delta" (Geant4's default: the constant itself) or "exponential", the
-material's ``wls_time_profile`` setting (docs/dev/decisions.md, 20). Refused: WLS2, a complex index, a Mie constant
+material's ``wls_time_profile`` setting. Refused: WLS2, a complex index, a Mie constant
 Geant4 would read but the material lacks. A user GROUPVEL is not read, with a warning (docs/dev/decisions.md, 16;
 Geant4's own, from a GDML export, is recognised: ``geant4_groupvel_export``).
 
@@ -156,8 +156,8 @@ REFUSED_MEDIUM = {"WLSCOMPONENT2": "a second WLS (G4OpWLS2)",
 REFUSED_SURFACE = ("REALRINDEX", "IMAGINARYRINDEX", "SURFACEROUGHNESS", "COATEDRINDEX", "COATEDTHICKNESS")
 SUPPORTED_FINISHES = ("polished", "ground", "polishedfrontpainted", "groundfrontpainted")
 MIE_KEYS = ("MIEHG_FORWARD", "MIEHG_BACKWARD", "MIEHG_FORWARD_RATIO")  # the lobe parameters of phase.MIE_PARAMS
-# G4OpWLS's time profiles (G4WLSTimeGeneratorProfileDelta / Exponential) and Geant4's default, a run setting the GDML
-# does not carry (G4OpticalParameters.cc:117, 11.3: wlsTimeProfileName = "delta")
+# G4OpWLS's time profiles and Geant4's default one (Geant4 11.3.0, G4OpticalParameters.cc: wlsTimeProfileName =
+# "delta"); the profile is a run setting, not part of the GDML
 WLS_PROFILES = ("delta", "exponential")
 DEFAULT_WLS_PROFILE = "delta"
 
@@ -427,7 +427,7 @@ def _metal(s: schema.Surface, model: str, finish: str, what: str, refl):
     if finish == "polished":
         return SurfaceEntry(legacy.SPECULAR_METAL, {"R": refl})
     consts = _unified_constants(pr, fraction)
-    if s.value == 0.0:  # GetFacetNormal returns the normal (G4OpBoundaryProcess.cc:673-676): the lobe is a mirror
+    if s.value == 0.0:  # Geant4 11.3.0 G4OpBoundaryProcess::GetFacetNormal returns the normal: the lobe is a mirror
         return SurfaceEntry(legacy.UNIFIED_METAL_FLAT, {"R": refl, **consts})
     if not SIGMA_MIN <= s.value <= SIGMA_MAX:
         raise OpticsRefused(f"{what}: sigma_alpha {s.value} outside [{SIGMA_MIN}, {SIGMA_MAX}] (or exactly 0)")
@@ -562,7 +562,7 @@ def _ground_metal_sensor(s: schema.Surface, model: str, what: str, refl, eff):
             raise OpticsRefused(f"{what}: polish {s.value} outside [0, {1 - GLISUR_R_MIN}] (or exactly 1)")
         return SensorEntry(legacy.GLISUR_METAL_EFF, {"R": refl, "polish": float(s.value), "eff": eff})
     consts = _unified_constants(s.properties, lambda pr, key, default: flat_fraction(s, key, default))
-    if s.value == 0.0:  # GetFacetNormal returns the normal: the lobe is a mirror (as in _metal)
+    if s.value == 0.0:  # Geant4 11.3.0 G4OpBoundaryProcess::GetFacetNormal returns the normal: the lobe is a mirror
         return SensorEntry(legacy.DIELECTRIC_METAL_FLAT, {"R": refl, **consts, "eff": eff})
     if not SIGMA_MIN <= s.value <= SIGMA_MAX:
         raise OpticsRefused(f"{what}: sigma_alpha {s.value} outside [{SIGMA_MIN}, {SIGMA_MAX}] (or exactly 0)")

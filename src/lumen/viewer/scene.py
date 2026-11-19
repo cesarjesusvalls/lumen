@@ -3,13 +3,12 @@
     view = build("sk.gdml", detector="sk")      # or build("sk"): a registered detector, its GDML under LUMEN_DATA
     view.payload                                 # the JSON the page draws (``lumen-view/1``); view.errors
 
-The GDML goes through ``lumen.gdml.importer.read_gdml`` and, with a recipe, ``Recipe.apply`` (its decisions and the
-general import rules), as ``lumen.convert`` does. Each material is read by its optics model
-(``lumen.build.library``): opaque, a medium and its channels, or refused with lumen's message; each property is
-marked with what reads it (a medium parameter and its key, a scintillation source, or nothing). Each surface gets
-its lumen surface type (or the sensor reader's, on a sensor), its parameters and where it is attached. Every placed
-copy of every volume becomes an instance with its world matrix (m). A step that fails is reported in ``errors`` and
-the rest is still drawn: the page shows why lumen refuses a file. Lengths m, energies eV, wavelengths nm.
+The GDML is imported and, with a recipe, the recipe is applied. Each material is read by its optics model: opaque, a
+medium and its channels, or refused with lumen's message; each property is marked with what reads it (a medium
+parameter and its key, a scintillation source, or nothing). Each surface gets its lumen surface type (or the sensor
+reader's, on a sensor), its parameters and where it is attached. Every placed copy of every volume becomes an instance
+with its world matrix. A step that fails is reported in ``errors`` and the rest is still built. Lengths m, energies
+eV, wavelengths nm.
 """
 
 from __future__ import annotations
@@ -32,8 +31,8 @@ from lumen.viewer.mesh import Tessellator
 
 SCHEMA = "lumen-view/1"
 MAX_INSTANCES = 3_000_000  # placed copies drawn at most; deeper copies past it are left out, and reported
-# The axis drawn vertical: a GDML file does not say. z (WCSim's tanks; LUCiD's convention) unless a registered
-# detector's program puts another up: nexus puts y up (NEXT's pedestal is at -y), the TPC axis along z.
+# The axis drawn vertical for a registered detector, when it is not z.
+# next100: nexus e798170 places the shielding pedestal at -y (Next100Shielding.cc).
 UP = {"next100": "y"}
 SCINT_PREFIXES = ("SCINTILLATION", "FAST", "SLOW", "YIELDRATIO", "RESOLUTIONSCALE", "PROTON", "DEUTERON", "TRITON",
                   "ALPHA", "ION", "ELECTRON")  # fmt: skip
@@ -59,7 +58,6 @@ def short(name):
     return reader.g4_strip(name) if name else name
 
 
-# ---------------------------------------------------------------------------------------------------- the inputs
 def load_recipe(spec):
     """Return the recipe ``NAME`` of a Python file ``path/to/file.py:NAME`` (a recipe of your own, not registered)."""
     import importlib.util
@@ -149,8 +147,7 @@ def read(path, recipe, inputs, errors, notes):
 def guess_detector(df, materials):
     """Return the volume lumen's ``auto:`` rule picks over every transparent material, for a GDML without a recipe.
 
-    ``lumen.build.lowering.find_detector``: the largest volume of such a material, then up while its mother is one
-    too. None when no material has a refractive index.
+    None when no material has a refractive index.
     """
     from lumen.build import lowering
 
@@ -172,12 +169,11 @@ def _with_detector(df, recipe, errors, notes):
     return dataclasses.replace(df, detector_volume=dv.lv, wavelength_range=recipe.wavelength_range)
 
 
-# ----------------------------------------------------------------------------------------------- the instances
 def instances(df, detector_lv, max_instances=MAX_INSTANCES):
     """Return every placed copy from the world, depth-first: lv index, parent, placement, depth, in-detector, matrix.
 
     The matrix is (n, 12): the 3x3 rotation-and-scale rows then the position (m), mapping the volume's frame to the
-    world's, composed as ``lumen.build.lowering`` composes placements.
+    world's.
     """
     from lumen.build.lowering import placement_pose
 
@@ -215,7 +211,6 @@ def instances(df, detector_lv, max_instances=MAX_INSTANCES):
                 matrix=np.asarray(mats, np.float64).reshape(-1, 12), cut=cut, lvs=lvs)  # fmt: skip
 
 
-# ------------------------------------------------------------------------------------------------ the properties
 def _unit(key):
     if key in LENGTH_KEYS:
         return "m"
@@ -234,7 +229,7 @@ SPECTRA = (
     "SCINTILLATIONCOMPONENT3",
     "FASTCOMPONENT",
     "SLOWCOMPONENT",
-)  # emission spectra: drawn within their knots
+)  # emission spectra: never marked as not covering the wavelength range
 
 
 def _property(p: schema.Property, reads, lam):
@@ -246,7 +241,7 @@ def _property(p: schema.Property, reads, lam):
     e, v = np.asarray(p.energy, float), np.asarray(p.value, float)
     out.update(kind="table", energy=e.tolist(), value=v.tolist(), n=len(e), min=float(v.min()), max=float(v.max()),
                lam=[HC / float(e[-1]), HC / float(e[0])])  # fmt: skip
-    if lam and lam[1] > lam[0] and p.key not in SPECTRA:  # a spectrum is drawn within its knots: none is clamped
+    if lam and lam[1] > lam[0] and p.key not in SPECTRA:
         out["covers"] = bool(e[0] <= HC / lam[1] + 1e-12 and e[-1] >= HC / lam[0] - 1e-12)
     return out
 
@@ -297,10 +292,10 @@ def material_info(df, rec, lam):
         status = "bound"  # lumen:same_as: another material's medium
     else:
         status = "opaque" if entry.medium.opaque else "medium"
-    live = set(entry.params) if entry is not None else set()  # the medium's parameters: index, absorption, ...
+    live = set(entry.params) if entry is not None else set()
     reads = _source_reads({k: v for k, v in (sources or {}).items() if k and k[0] in live})
     scint = _caught(lambda: optics.scintillation(rec), "scintillation", [], [])
-    if "wls" in live and "WLSCOMPONENT" in rec.properties:  # the re-emission spectrum, read by the channel itself
+    if "wls" in live and "WLSCOMPONENT" in rec.properties:  # read by the channel itself, not as a parameter
         note = "the re-emission spectrum (G4OpWLS)"
         reads.setdefault("WLSCOMPONENT", []).append(dict(param="wls/spectrum", column="spectrum", note=note, key=""))
     for k in rec.properties:
@@ -364,9 +359,8 @@ def surface_info(df, rec, sensor_lvs, lam, pv_lv):
     )  # fmt: skip
 
 
-# ---------------------------------------------------------------------------------------------- the boundaries
 def _default(pre, post, materials):
-    """Return what lumen does where no surface applies (``lumen.rules.boundary``, step 4)."""
+    """Return what lumen does where no surface applies."""
     a, b = materials.get(pre or ""), materials.get(post or "")
     if pre == post:
         return "pass", "no boundary: the same material on both sides"
@@ -438,7 +432,7 @@ def _rows(df, bd, copy, ctx, group):
     if group is not None and group.rule == "any_entry":
         enter.update(via="sensor", surface=None, outcome="sensor", text=f"counted on entry (group {group.name})")
     rows = [enter, dict(_side(bd.find((pv, mpv), lv, mother), mat, mmat, ctx), dir="out", partner=short(mother))]
-    if lv in bd.skin:  # entering from a touching volume (a PMT window onto its photocathode): pre's skin first
+    if lv in bd.skin:  # the volume's own skin, met when a touching volume other than its mother enters it
         row = _side((f"skin of {short(lv)}", bd.skin[lv]), None, mat, ctx)
         text = row["text"] + " (unless that volume has a skin or a border of its own)"
         rows.append(dict(row, dir="in", partner="a touching volume", text=text))
@@ -455,10 +449,10 @@ def _rows(df, bd, copy, ctx, group):
 def crossings(df, inst, materials, surfaces, sset):
     """Return {lv: [crossing, ...]}: lumen's boundary rule at each volume's first copy, every border included.
 
-    Geant4's order (``lumen.rules.boundary``): an any-entry sensor; the border surface of the ordered pair of placed
-    volumes; the skins (the daughter's, then the mother's, both ways); the material default. The crossings with the
-    mother come first (in, then out), then the volume's own skin met from a touching volume, then every border surface
-    the copy takes part in, with its partner (a sibling PMT glass and cathode, say). Coincident faces are not shown.
+    Geant4's order: an any-entry sensor; the border surface of the ordered pair of placed volumes; the skins (the
+    daughter's, then the mother's, both ways); the material default. The crossings with the mother come first (in,
+    then out), then the volume's own skin met from a touching volume, then every border surface the copy takes part in,
+    with its partner. Coincident faces are not shown.
     """
     bd = _Boundaries.of(df)
     first: dict = {}
@@ -477,7 +471,6 @@ def crossings(df, inst, materials, surfaces, sset):
     return out
 
 
-# -------------------------------------------------------------------------------------------------- the volumes
 def _solid_info(s):
     dims = dict(ATTRIBUTES.get(s.type, ()))
     params = {}
@@ -506,7 +499,7 @@ def _group_of(sset, lv):
 
 
 def build(source, detector=None, max_instances=MAX_INSTANCES, recipe=None, up=None) -> View:
-    """Return the scene (``View``) of a GDML file, or of a registered detector by name (see the module docstring).
+    """Return the scene (``View``) of a GDML file, or of a registered detector by name.
 
     ``detector`` reads the GDML with a registered detector's recipe, ``recipe`` (``FILE.py:NAME``) with your own;
     ``up`` (x, y or z) is the axis the page first draws vertical (``UP``, else z).
@@ -569,7 +562,7 @@ def _jsonable(x):
 
 
 def _geometry(df, inst, sset, materials):
-    """Return the meshes, solids, volumes and instances of the page (see ``build``)."""
+    """Return the meshes, solids, volumes and instances of the page."""
     lvs = inst["lvs"]
     counts = np.bincount(inst["lv"], minlength=len(lvs))
     tess = Tessellator(df, {lv: int(counts[i]) for i, lv in enumerate(lvs)})  # coarser faces for repeated solids
