@@ -482,6 +482,13 @@ function volumeHtml(i, gid) {
       : (m.status === 'opaque' ? `<div class="msg info">No RINDEX: lumen stops a photon at this volume's boundary (Geant4's NoRINDEX), unless a surface says otherwise.</div>` : '');
     h += msg;
   }
+  if (v.crossings) {
+    const cls = { none: 'b-dim', pass: 'b-dim', absorb: 'b-opaque', fresnel: 'b-medium', surface: 'b-ok', sensor: 'b-sensor', refused: 'b-refused' };
+    const line = (c, dir) => `<div class="kv" style="margin:4px 0">${kv(dir, `${badge(c.outcome.toUpperCase(), cls[c.outcome] || 'b-dim')}
+      ${c.surface ? surfLink(c.surface) + ` <span class="badge b-dim">${esc(c.via)}</span>` : ''}<br><span style="color:#999">${esc(c.text)}</span>`)}</div>`;
+    h += `<div class="section">AT ITS BOUNDARY</div>${v.crossings.map((c) => line(c, (c.dir === 'in' ? 'entering from ' : 'leaving into ') + c.partner)).join('')}
+      <div style="color:#555;font-size:10px">lumen's boundary rule (border, then skins, then the materials) for the first copy: with its mother, and across every border surface it takes part in.</div>`;
+  }
   if (v.solid_info) {
     const s = v.solid_info; const mesh = S.meshes[v.mesh];
     h += `<div class="section">SOLID</div><div class="kv">${kv('name', esc(v.solid))}${kv('type', esc(s.type))}
@@ -496,7 +503,7 @@ function volumeHtml(i, gid) {
 
 function readsText(p, owner) {
   if (p.reads.length) {
-    const ps = [...new Set(p.reads.map((r) => r.param === 'source' ? 'scintillation source' : (PARAM_NAMES[r.param.split('/')[0]] || r.param.split('/')[0]) + (r.column === 'derived' ? ' (derived)' : '')))];
+    const ps = [...new Set(p.reads.map((r) => r.param === 'source' ? 'scintillation source' : (PARAM_NAMES[r.param.split('/')[0]] || r.param.split('/')[0]) + (r.column === 'derived' ? ' (derived)' : (r.column === 'spectrum' ? ' (spectrum)' : ''))))];
     const keys = [...new Set(p.reads.map((r) => r.key).filter(Boolean))];
     return `<td class="read" title="${esc(keys.join('\n'))}">${esc(ps.join(', '))}</td>`;
   }
@@ -526,6 +533,7 @@ function materialHtml(m) {
   h += `<div class="section">LUMEN</div><div class="kv">${kv('optics model', esc(m.optics.model) + (m.optics.origin !== 'gdml' ? ` <span class="badge b-dim">${esc(m.optics.origin)}</span>` : ''))}
     ${m.optics.note ? kv('why', esc(m.optics.note)) : ''}${m.target && m.target !== m.name ? kv('medium', esc(m.target)) : ''}
     ${kv('channels', m.channels.length ? esc(m.channels.join(', ')) : '–')}
+    ${Object.entries(m.reemission || {}).map(([c, prof]) => kv(`${c} delay`, prof === 'delta' ? 'delta: WLSTIMECONSTANT itself (Geant4\'s default)' : 'exponential: drawn from Exp(WLSTIMECONSTANT)')).join('')}
     ${m.scintillation ? kv('scintillation', `${fmt(m.scintillation.yield_per_MeV)} /MeV, τ ${fmt(m.scintillation.tau_fast)} / ${fmt(m.scintillation.tau_slow)} ns, fast ${fmt(m.scintillation.f_fast)}`) : ''}
     ${kv('volumes', vols.map((i) => lvLink(S.volumes[i].name)).join(', ') || '–')}</div>`;
   if (m.properties.length || m.derived.length) {

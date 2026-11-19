@@ -223,6 +223,17 @@ def _unit(key):
     return ""
 
 
+SPECTRA = (
+    "WLSCOMPONENT",
+    "WLSCOMPONENT2",
+    "SCINTILLATIONCOMPONENT1",
+    "SCINTILLATIONCOMPONENT2",
+    "SCINTILLATIONCOMPONENT3",
+    "FASTCOMPONENT",
+    "SLOWCOMPONENT",
+)  # emission spectra: drawn within their knots
+
+
 def _property(p: schema.Property, reads, lam):
     """Return a property for the page: its table (energies eV, wavelengths nm) or constant, and what reads it."""
     out = dict(key=p.key, origin=p.origin, note=p.note, matrix=short(p.matrix), unit=_unit(p.key), reads=reads)
@@ -232,7 +243,7 @@ def _property(p: schema.Property, reads, lam):
     e, v = np.asarray(p.energy, float), np.asarray(p.value, float)
     out.update(kind="table", energy=e.tolist(), value=v.tolist(), n=len(e), min=float(v.min()), max=float(v.max()),
                lam=[HC / float(e[-1]), HC / float(e[0])])  # fmt: skip
-    if lam and lam[1] > lam[0]:
+    if lam and lam[1] > lam[0] and p.key not in SPECTRA:  # a spectrum is drawn within its knots: none is clamped
         out["covers"] = bool(e[0] <= HC / lam[1] + 1e-12 and e[-1] >= HC / lam[0] - 1e-12)
     return out
 
@@ -246,6 +257,13 @@ def _source_reads(sources):
             reads.setdefault(prop, []).append(dict(param="/".join(path), column=src.column, note=src.note,
                                                    key=src.key))  # fmt: skip
     return reads
+
+
+def _reemission(entry):
+    """Return {channel: its re-emission delay profile} of a medium's re-emitting channels (G4OpWLS)."""
+    if entry is None:
+        return {}
+    return {c.name: getattr(c, "time_profile", "exponential") for c in entry.medium.channels if c.reemit is not None}
 
 
 def _channels(entry):
@@ -279,6 +297,9 @@ def material_info(df, rec, lam):
     live = set(entry.params) if entry is not None else set()  # the medium's parameters: index, absorption, ...
     reads = _source_reads({k: v for k, v in (sources or {}).items() if k and k[0] in live})
     scint = _caught(lambda: optics.scintillation(rec), "scintillation", [], [])
+    if "wls" in live and "WLSCOMPONENT" in rec.properties:  # the re-emission spectrum, read by the channel itself
+        note = "the re-emission spectrum (G4OpWLS)"
+        reads.setdefault("WLSCOMPONENT", []).append(dict(param="wls/spectrum", column="spectrum", note=note, key=""))
     for k in rec.properties:
         if k.startswith(SCINT_PREFIXES) and scint is not None:
             reads.setdefault(k, []).append(dict(param="source", column="scintillation", note="lumen.sources", key=""))
@@ -295,7 +316,7 @@ def material_info(df, rec, lam):
         composition=[dict(ref=short(c.ref), fraction=c.fraction, atoms=c.atoms) for c in rec.composition.components],
         optics=dict(model=o.name, origin=o.origin, note=o.note, settings={k: str(v) for k, v in o.settings.items()}),
         status=status, target=target, message=errors[0][1] if errors else "", warnings=[n["text"] for n in notes],
-        channels=_channels(entry),
+        channels=_channels(entry), reemission=_reemission(entry),
         properties=[_property(p, reads.get(k, []), lam) for k, p in sorted(rec.properties.items())],
         derived=derived, inert=sorted(rec.inert),
         scintillation=None if scint is None else dict(yield_per_MeV=scint["yield_per_MeV"], tau_fast=scint["tau_fast"],
@@ -338,6 +359,119 @@ def surface_info(df, rec, sensor_lvs, lam, pv_lv):
         properties=[_property(p, reads.get(k, []), lam) for k, p in sorted(rec.properties.items())],
         inert=list(rec.inert), skins=attached, borders=[[b.pv1, b.pv2] for b in borders[:200]], n_borders=len(borders),
     )  # fmt: skip
+
+
+# ---------------------------------------------------------------------------------------------- the boundaries
+def _default(pre, post, materials):
+    """Return what lumen does where no surface applies (``lumen.rules.boundary``, step 4)."""
+    a, b = materials.get(pre or ""), materials.get(post or "")
+    if pre == post:
+        return "pass", "no boundary: the same material on both sides"
+    if b is None or b["status"] == "opaque":
+        return "absorb", "absorbed: no RINDEX beyond (Geant4's NoRINDEX)"
+    if b["status"] == "refused" or (a is not None and a["status"] == "refused"):
+        return "refused", "a material lumen refuses"
+    return "fresnel", "Fresnel reflection or refraction between the two indices"
+
+
+def _side(found, pre, post, ctx):
+    """Return one crossing (pre -> post materials) given the surface found by the border and skin rules, if any."""
+    materials, surfaces = ctx
+    via, name = found
+    a = materials.get(pre or "")
+    if pre is not None and (a is None or a["status"] == "opaque"):  # None: an unnamed neighbour, taken transparent
+        return dict(via="material", surface=None, outcome="none", text="no photon travels on this side (no RINDEX)")
+    s = surfaces.get(name) if name else None
+    if s is not None:
+        g4 = s["geant4"]
+        if pre == post and g4["type"] == "dielectric_dielectric" and g4["finish"] in ("polished", "ground"):
+            out, what = _default(pre, post, materials)
+            text = f"skipped (the same material on both sides): {what}"
+            return dict(via=via, surface=name, outcome=out, text=text)
+        if s["status"] == "sensor":
+            return dict(
+                via=via, surface=name, outcome="sensor", text=f"read by the sensor's reader: {s['sensor_type']}"
+            )
+        if s["status"] == "refused":
+            return dict(via=via, surface=name, outcome="refused", text="a surface lumen refuses")
+        return dict(via=via, surface=name, outcome="surface", text=f"surface type {s['surface_type']}")
+    out, what = _default(pre, post, materials)
+    return dict(via="material", surface=None, outcome=out, text=what)
+
+
+@dataclasses.dataclass(frozen=True)
+class _Boundaries:
+    """A detector file's surfaces by where Geant4 looks them up: border pairs, borders by placement, skins by volume."""
+
+    border: dict
+    by_pv: dict
+    skin: dict
+    pv_lv: dict
+
+    @classmethod
+    def of(cls, df):
+        by_pv: dict = {}
+        for b in df.borders:
+            by_pv.setdefault(b.pv1, []).append(b)
+            by_pv.setdefault(b.pv2, []).append(b)
+        return cls({(b.pv1, b.pv2): b.surface for b in df.borders}, by_pv, {k.volume: k.surface for k in df.skins},
+                   {p.name: p.volume for p in df.placements})  # fmt: skip
+
+    def find(self, pair, lv, mother):
+        """Return (via, surface) of a crossing between a volume and its mother: the border, else the skins."""
+        if pair in self.border:
+            return "border", self.border[pair]
+        for who in (lv, mother):
+            if who in self.skin:
+                return f"skin of {short(who)}", self.skin[who]
+        return None, None
+
+
+def _rows(df, bd, copy, ctx, group):
+    """Return the crossings of one volume's first copy ``copy`` = (lv, pv, mother, mother's pv)."""
+    lv, pv, mother, mpv = copy
+    mat, mmat = df.volumes[lv].material, df.volumes[mother].material
+    enter = dict(_side(bd.find((mpv, pv), lv, mother), mmat, mat, ctx), dir="in", partner=short(mother))
+    if group is not None and group.rule == "any_entry":
+        enter.update(via="sensor", surface=None, outcome="sensor", text=f"counted on entry (group {group.name})")
+    rows = [enter, dict(_side(bd.find((pv, mpv), lv, mother), mat, mmat, ctx), dir="out", partner=short(mother))]
+    if lv in bd.skin:  # entering from a touching volume (a PMT window onto its photocathode): pre's skin first
+        row = _side((f"skin of {short(lv)}", bd.skin[lv]), None, mat, ctx)
+        text = row["text"] + " (unless that volume has a skin or a border of its own)"
+        rows.append(dict(row, dir="in", partner="a touching volume", text=text))
+    for b in bd.by_pv.get(pv, []):
+        if mpv in (b.pv1, b.pv2):
+            continue  # with the mother: shown above
+        other = b.pv1 if b.pv2 == pv else b.pv2
+        pre, post = df.volumes[bd.pv_lv[b.pv1]].material, df.volumes[bd.pv_lv[b.pv2]].material
+        row = _side(("border", b.surface), pre, post, ctx)
+        rows.append(dict(row, dir="in" if b.pv2 == pv else "out", partner=short(bd.pv_lv.get(other, other))))
+    return rows
+
+
+def crossings(df, inst, materials, surfaces, sset):
+    """Return {lv: [crossing, ...]}: lumen's boundary rule at each volume's first copy, every border included.
+
+    Geant4's order (``lumen.rules.boundary``): an any-entry sensor; the border surface of the ordered pair of placed
+    volumes; the skins (the daughter's, then the mother's, both ways); the material default. The crossings with the
+    mother come first (in, then out), then the volume's own skin met from a touching volume, then every border surface
+    the copy takes part in, with its partner (a sibling PMT glass and cathode, say). Coincident faces are not shown.
+    """
+    bd = _Boundaries.of(df)
+    first: dict = {}
+    for g, li in enumerate(inst["lv"]):
+        first.setdefault(int(li), g)
+    groups = sset.groups if sset is not None else ()
+    out = {}
+    for li, g in first.items():
+        par = int(inst["parent"][g])
+        if par < 0:
+            continue
+        lv, mother = inst["lvs"][li], inst["lvs"][int(inst["lv"][par])]
+        mpv = df.placements[int(inst["pv"][par])].name if inst["pv"][par] >= 0 else None
+        copy = (lv, df.placements[int(inst["pv"][g])].name, mother, mpv)
+        out[lv] = _rows(df, bd, copy, (materials, surfaces), next((x for x in groups if x.selects(lv)), None))
+    return out
 
 
 # -------------------------------------------------------------------------------------------------- the volumes
@@ -389,6 +523,9 @@ def build(source, detector=None, max_instances=MAX_INSTANCES, recipe=None) -> Vi
     pv_lv = {p.name: p.volume for p in df.placements}
     payload["surfaces"] = {s: surface_info(df, r, sensor_lvs, lam, pv_lv) for s, r in df.surfaces.items()}
     payload.update(_geometry(df, inst, sset, payload["materials"]))
+    cross = crossings(df, inst, payload["materials"], payload["surfaces"], sset)
+    for v in payload["volumes"]:
+        v["crossings"] = cross.get(v["name"])
     payload["placements"] = [
         dict(name=p.name, short=short(p.name), volume=p.volume, copy=p.copy) for p in df.placements
     ]
