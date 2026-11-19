@@ -7,8 +7,9 @@
 the border surfaces by ordered PV pair, the library entries and which media are opaque. For an ordered crossing
 (pre, post), in Geant4's order:
 
-1. entering a sensor PV whose rule is "any entry" (or across the border bound to its sensor): that sensor's type;
-   a border sensor out of pre (an exit sensor: WCSim's Detection leaving the tube) is credited to pre;
+1. entering a sensor PV whose rule is "any entry" (or across the border bound to its sensor, or where Geant4's skin
+   order below picks the sensor PV's own skin: a sensitive volume whose skin is the photocathode): that sensor's
+   type; a border sensor out of pre (an exit sensor: WCSim's Detection leaving the tube) is credited to pre;
 2. the border surface of the ordered pair (pre, post): directional, as the GDML defines it;
 3. the skins: post's then pre's when post is a daughter of pre (Geant4's enteredDaughter), otherwise pre's then
    post's;
@@ -74,7 +75,7 @@ def _surface(v, pre, post, rel):
 def crossing(v, pre, post, rel):
     """Return (type, origin, reason, side credited) of the crossing pre -> post (``rel``: post relative to pre)."""
     lib = v.library
-    if v.enters_sensor(pre, post):
+    if v.enters_sensor(pre, post, rel):
         stype, origin, reason = lib.sensors[v.sensor[post]].surface_type, f"sensor:{v.sensor[post]}", "sensor"
     elif v.borders.get((pre, post)) in lib.sensors:  # an exit sensor: pre is a sensor PV
         s = v.borders[(pre, post)]

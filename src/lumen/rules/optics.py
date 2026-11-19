@@ -15,10 +15,12 @@ group index is Geant4's GROUPVEL.
 
 Media (``medium``; the channels and their keys: docs/dev/architecture.md, "Bulk processes and sources"): no RINDEX is
 opaque (Geant4's NoRINDEX kill); a material named Water without RAYLEIGH gets Geant4's own table
-(``geant4_rayleigh``). Refused: WLS2, a bulk WLSMEANNUMBERPHOTONS (lowered only on a film: ``wls_film``), a complex
-index, a nonzero WLSTIMECONSTANT, a Mie constant Geant4 would read but the material lacks. A user GROUPVEL is not
-read, with a warning (docs/dev/decisions.md, 16; Geant4's own, from a GDML export, is recognised:
-``geant4_groupvel_export``).
+(``geant4_rayleigh``). A wavelength shifter (G4OpWLS) re-emits WLSMEANNUMBERPHOTONS photons on average (Geant4 draws
+a Poisson count; lumen tracks one photon of that weight, the same expectation), 1 without it, after a delay of
+WLSTIMECONSTANT under Geant4's time profile: "delta" (Geant4's default: the constant itself) or "exponential", the
+material's ``wls_time_profile`` setting (docs/dev/decisions.md, 20). Refused: WLS2, a complex index, a Mie constant
+Geant4 would read but the material lacks. A user GROUPVEL is not read, with a warning (docs/dev/decisions.md, 16;
+Geant4's own, from a GDML export, is recognised: ``geant4_groupvel_export``).
 
 Surfaces (G4OpBoundaryProcess::PostStepDoIt, DielectricMetal, DoReflection; no table: R = 1, T = 0, efficiency 0):
 
@@ -26,6 +28,7 @@ Surfaces (G4OpBoundaryProcess::PostStepDoIt, DielectricMetal, DoReflection; no t
     dielectric_metal, glisur (other finish, polish 1)   SPECULAR_METAL: R mirror
     dielectric_metal, unified, polished                 SPECULAR_METAL
     dielectric_metal, unified, ground                   UNIFIED_METAL: spike / lobe / back / Lambert, Geant4's cuts
+    dielectric_metal, unified, ground, sigma_alpha 0    UNIFIED_METAL_FLAT: as above, the lobe a mirror (facet = normal)
     dielectric_dielectric, polishedfrontpainted         PAINTED_T (f_spec 1): R mirror, T straight, rest absorbed
     dielectric_dielectric, groundfrontpainted           PAINTED_T (f_spec 0): R Lambert about the normal
     dielectric_dielectric, polished                     DIELECTRIC_RT: absorbed 1 - R - T, T straight, R to Fresnel,
@@ -39,7 +42,8 @@ TRANSMITTANCE on it is refused.
 
 Refused (the messages: docs/reference/errors.md): LUT, DAVIS, dichroic, backpainted, ground dielectric_dielectric, a
 complex index, SURFACEROUGHNESS, coated keys, EFFICIENCY outside DIELECTRIC_RT (a detecting surface is a ``sensor``),
-TRANSMITTANCE on a metal, sigma_alpha outside [SIGMA_MIN, SIGMA_MAX], 1 - polish below GLISUR_R_MIN.
+TRANSMITTANCE on a metal, sigma_alpha outside [SIGMA_MIN, SIGMA_MAX] (0 excepted: GetFacetNormal then returns the
+normal), 1 - polish below GLISUR_R_MIN.
 
 Detecting surfaces (``sensor``): how a sensor's optical surface behaves during tracking, read by a reader
 (``reader(surface, lam_domain) -> SensorEntry``, registered in ``lumen.plugins.optics_models``), named by the sensor
@@ -51,7 +55,8 @@ what happens after tracking.
         (absent: the complex index REALRINDEX + i IMAGINARYRINDEX, CalculateReflectivity, a PHOTOCATHODE; neither:
         R = 1), the absorbed 1 - R detected with EFFICIENCY (default 0); the reflection by model and finish: polished
         (glisur or unified) a mirror (SENSOR, f_spec 1), glisur ground the facet path (GLISUR_METAL_EFF), unified
-        ground spike / lobe / back / Lambert (DIELECTRIC_METAL). dielectric_dielectric, polished (R / T at Geant4's
+        ground spike / lobe / back / Lambert (DIELECTRIC_METAL; at sigma_alpha 0 DIELECTRIC_METAL_FLAT, the lobe a
+        mirror). dielectric_dielectric, polished (R / T at Geant4's
         defaults if absent): DIELECTRIC_RT_SENSOR, eff = EFFICIENCY. Keys no stock process reads on a surface (RINDEX,
         KINDEX, THICKNESS on a dielectric_metal) are ignored, as Geant4 ignores them.
     lumen:complex_index
@@ -145,12 +150,16 @@ G4_10_KEYS = {
 MATERIAL_KEYS = TABLE_KEYS | CONST_KEYS | frozenset(G4_10_KEYS) | {"ISOTHERMAL_COMPRESSIBILITY", "RS_SCALE_FACTOR"}
 
 REFUSED_MEDIUM = {"WLSCOMPONENT2": "a second WLS (G4OpWLS2)",
-                  "WLSABSLENGTH2": "a second WLS (G4OpWLS2)", "WLSMEANNUMBERPHOTONS": "a Poisson WLS count",
-                  "WLSMEANNUMBERPHOTONS2": "a Poisson WLS count", "REALRINDEX": "a complex index",
-                  "IMAGINARYRINDEX": "a complex index", "COATEDRINDEX": "a coated surface property"}  # fmt: skip
+                  "WLSABSLENGTH2": "a second WLS (G4OpWLS2)", "WLSMEANNUMBERPHOTONS2": "a second WLS (G4OpWLS2)",
+                  "REALRINDEX": "a complex index", "IMAGINARYRINDEX": "a complex index",
+                  "COATEDRINDEX": "a coated surface property"}  # fmt: skip
 REFUSED_SURFACE = ("REALRINDEX", "IMAGINARYRINDEX", "SURFACEROUGHNESS", "COATEDRINDEX", "COATEDTHICKNESS")
 SUPPORTED_FINISHES = ("polished", "ground", "polishedfrontpainted", "groundfrontpainted")
 MIE_KEYS = ("MIEHG_FORWARD", "MIEHG_BACKWARD", "MIEHG_FORWARD_RATIO")  # the lobe parameters of phase.MIE_PARAMS
+# G4OpWLS's time profiles (G4WLSTimeGeneratorProfileDelta / Exponential) and Geant4's default, a run setting the GDML
+# does not carry (G4OpticalParameters.cc:117, 11.3: wlsTimeProfileName = "delta")
+WLS_PROFILES = ("delta", "exponential")
+DEFAULT_WLS_PROFILE = "delta"
 
 
 class OpticsRefused(DescriptionError):  # noqa: N818 (named like the importer's ImportRefused)
@@ -307,14 +316,14 @@ def _index_law(props: dict, index: str):
 def _wls_channel(props: dict, name: str, what: str, wls_time_profile):
     if "WLSCOMPONENT" not in props:
         raise OpticsRefused(f"{what}: WLSABSLENGTH without WLSCOMPONENT (G4OpWLS absorbs and emits nothing)")
+    profile = DEFAULT_WLS_PROFILE if wls_time_profile is None else wls_time_profile
+    if profile not in WLS_PROFILES:
+        raise OpticsRefused(f"{what}: WLS time profile {profile!r} is not one of {WLS_PROFILES} (G4OpWLS)")
     tau = float(props["WLSTIMECONSTANT"].value) if "WLSTIMECONSTANT" in props else 0.0
-    if tau != 0.0 and wls_time_profile != "exponential":
-        raise OpticsRefused(f"{what}: WLSTIMECONSTANT {tau} ns: Geant4's default WLS time profile is 'delta' (a fixed "
-                            "delay); lumen's delay is exponential: declare wls_time_profile='exponential' if that is "
-                            "the Geant4 configuration")  # fmt: skip
     law, lp = table(props["WLSABSLENGTH"], "length")
     spec = spectra.geant4_spectrum(f"{name}.WLSCOMPONENT", props["WLSCOMPONENT"].energy, props["WLSCOMPONENT"].value)
-    return bulk.Channel("wls", phase.ISOTROPIC, law, reemit=spec), {"length": lp, "yield": 1.0, "tau": tau}
+    ch = bulk.Channel("wls", phase.ISOTROPIC, law, reemit=spec, time_profile=profile)
+    return ch, {"length": lp, "yield": wls_yield(props, what), "tau": tau}
 
 
 def mie_constants(props: dict, what: str) -> tuple[dict, frozenset]:
@@ -372,7 +381,8 @@ def medium(material: schema.Material, name: str | None = None, index: str = "gea
     """Return the MediumEntry of a material, Geant4's reading (see the module docstring), named ``name``.
 
     ``index``: "geant4" (Geant4's GROUPVEL timing) or "tabulated" (the group index of the piecewise-linear n).
-    ``wls_time_profile``: needed ("exponential") only for a nonzero WLSTIMECONSTANT.
+    ``wls_time_profile``: G4OpWLS's re-emission delay, "delta" (WLSTIMECONSTANT itself) or "exponential"; None is
+    Geant4's default, "delta".
     """
     props = material.properties
     name = name or material.name
@@ -416,12 +426,30 @@ def _metal(s: schema.Surface, model: str, finish: str, what: str, refl):
         return SurfaceEntry(legacy.SPECULAR_METAL, {"R": refl})
     if finish == "polished":
         return SurfaceEntry(legacy.SPECULAR_METAL, {"R": refl})
+    consts = _unified_constants(pr, fraction)
+    if s.value == 0.0:  # GetFacetNormal returns the normal (G4OpBoundaryProcess.cc:673-676): the lobe is a mirror
+        return SurfaceEntry(legacy.UNIFIED_METAL_FLAT, {"R": refl, **consts})
     if not SIGMA_MIN <= s.value <= SIGMA_MAX:
-        raise OpticsRefused(f"{what}: sigma_alpha {s.value} outside [{SIGMA_MIN}, {SIGMA_MAX}]")
-    return SurfaceEntry(legacy.UNIFIED_METAL, {"R": refl, "p_spike": fraction(pr, "SPECULARSPIKECONSTANT", 0.0),
-                                               "p_lobe": fraction(pr, "SPECULARLOBECONSTANT", 0.0),
-                                               "p_back": fraction(pr, "BACKSCATTERCONSTANT", 0.0),
-                                               "sigma_alpha": float(s.value)})  # fmt: skip
+        raise OpticsRefused(f"{what}: sigma_alpha {s.value} outside [{SIGMA_MIN}, {SIGMA_MAX}] (or exactly 0)")
+    return SurfaceEntry(legacy.UNIFIED_METAL, {"R": refl, **consts, "sigma_alpha": float(s.value)})
+
+
+def _unified_constants(pr: dict, read) -> dict:
+    """Return unified's spike, lobe and backscatter constants, each ``read(pr, KEY, 0.0)`` (Geant4's default 0)."""
+    return {"p_spike": read(pr, "SPECULARSPIKECONSTANT", 0.0), "p_lobe": read(pr, "SPECULARLOBECONSTANT", 0.0),
+            "p_back": read(pr, "BACKSCATTERCONSTANT", 0.0)}  # fmt: skip
+
+
+def samples_facet(s: schema.Surface) -> bool:
+    """Return whether Geant4 samples a facet normal on a surface (G4OpBoundaryProcess::GetFacetNormal).
+
+    Only a ground dielectric_metal reflection does: unified with sigma_alpha > 0, glisur with polish < 1. A polished
+    or painted finish, sigma_alpha 0 and polish 1 take the global normal, so the value is never read there.
+    """
+    model, finish, type_ = surface_names(s)
+    if type_ != "dielectric_metal" or finish != "ground":
+        return False
+    return s.value > 0.0 if model == "unified" else s.value < 1.0
 
 
 def _dielectric(s: schema.Surface, finish: str, what: str, refl, transmits: bool):
@@ -533,12 +561,12 @@ def _ground_metal_sensor(s: schema.Surface, model: str, what: str, refl, eff):
         if s.value < 0.0 or 1.0 - s.value < GLISUR_R_MIN:
             raise OpticsRefused(f"{what}: polish {s.value} outside [0, {1 - GLISUR_R_MIN}] (or exactly 1)")
         return SensorEntry(legacy.GLISUR_METAL_EFF, {"R": refl, "polish": float(s.value), "eff": eff})
+    consts = _unified_constants(s.properties, lambda pr, key, default: flat_fraction(s, key, default))
+    if s.value == 0.0:  # GetFacetNormal returns the normal: the lobe is a mirror (as in _metal)
+        return SensorEntry(legacy.DIELECTRIC_METAL_FLAT, {"R": refl, **consts, "eff": eff})
     if not SIGMA_MIN <= s.value <= SIGMA_MAX:
-        raise OpticsRefused(f"{what}: sigma_alpha {s.value} outside [{SIGMA_MIN}, {SIGMA_MAX}]")
-    return SensorEntry(legacy.DIELECTRIC_METAL, {"R": refl, "p_spike": flat_fraction(s, "SPECULARSPIKECONSTANT", 0.0),
-                                                 "p_lobe": flat_fraction(s, "SPECULARLOBECONSTANT", 0.0),
-                                                 "p_back": flat_fraction(s, "BACKSCATTERCONSTANT", 0.0),
-                                                 "sigma_alpha": float(s.value), "eff": eff})  # fmt: skip
+        raise OpticsRefused(f"{what}: sigma_alpha {s.value} outside [{SIGMA_MIN}, {SIGMA_MAX}] (or exactly 0)")
+    return SensorEntry(legacy.DIELECTRIC_METAL, {"R": refl, **consts, "sigma_alpha": float(s.value), "eff": eff})
 
 
 def geant4_sensor(s: schema.Surface, lam_domain) -> SensorEntry:
@@ -675,7 +703,12 @@ def _check_film(props: dict, front: dict, what: str):
     return tau
 
 
-def _film_yield(props: dict, what: str) -> float:
+def wls_yield(props: dict, what: str) -> float:
+    """Return a wavelength shifter's mean number of photons per absorption: WLSMEANNUMBERPHOTONS, 1 without it.
+
+    G4OpWLS::PostStepDoIt emits G4Poisson(WLSMEANNUMBERPHOTONS) photons when the constant exists, else one, each
+    drawn alike: one photon weighted by the mean has the same expectation.
+    """
     if "WLSMEANNUMBERPHOTONS" not in props:  # G4OpWLS: Poisson(mean) photons per absorption, 1 without it
         return 1.0
     mean = props["WLSMEANNUMBERPHOTONS"]
@@ -716,7 +749,7 @@ def wls_film(film: schema.Material, front: schema.Material, backing: schema.Surf
     if key not in types:
         spectrum = spectra.geant4_spectrum(film.name, wle.energy, wle.value)
         types[key] = legacy.coated(f"coated:{film.name}:{b.surface_type.name}", b.surface_type, spectrum)
-    params = {"L": table(wla, "length"), "d": float(d), "eta": _film_yield(props, what), "tau": tau,
+    params = {"L": table(wla, "length"), "d": float(d), "eta": wls_yield(props, what), "tau": tau,
               "axis": np.asarray(axis, np.float64)}  # fmt: skip
     params.update({f"b:{k}": v for k, v in b.params.items()})
     return SurfaceEntry(types[key], params)

@@ -84,6 +84,16 @@ SETS = {
         {"R": 0.8, "p_spike": 0.1, "p_lobe": 0.5, "p_back": 0.1, "sigma_alpha": 0.2},
         {"R": 0.5, "p_spike": 0.7, "p_lobe": 0.6, "p_back": 0.3, "sigma_alpha": 0.5},
     ],
+    "unified_metal_flat": [
+        {"R": 0.8, "p_spike": 0.1, "p_lobe": 0.5, "p_back": 0.1},
+        {"R": 0.5, "p_spike": 0.7, "p_lobe": 0.6, "p_back": 0.3},
+        {"R": 1.0, "p_spike": 0.0, "p_lobe": 0.0, "p_back": 0.0},
+    ],
+    "dielectric_metal_flat": [
+        {"R": 0.9, "p_spike": 0.2, "p_lobe": 0.5, "p_back": 0.1, "eff": 0.2},
+        {"R": 0.0, "p_spike": 0.0, "p_lobe": 0.0, "p_back": 0.0, "eff": 1.0},
+        {"R": 1.2, "p_spike": 0.7, "p_lobe": 0.6, "p_back": 0.3, "eff": 0.5},
+    ],
     "painted": [{"R": 0.6, "f_spec": 1.0}, {"R": 0.6, "f_spec": 0.0}],
     "painted_t": [{"R": 0.5, "T": 0.3, "f_spec": 0.0}, {"R": 0.7, "T": 0.6, "f_spec": 1.0}],
 }
@@ -92,7 +102,7 @@ PAIRS = [(1.0, 1.33), (1.33, 1.0), (1.33, 1.5), (1.5, 1.0), (1.36, 1.36), (1.0, 
 
 
 def test_every_type_has_parameter_sets():
-    assert len(legacy.TYPES) == 16
+    assert len(legacy.TYPES) == 18
     assert sorted(t.name for t in legacy.TYPES) == sorted(SETS)
 
 

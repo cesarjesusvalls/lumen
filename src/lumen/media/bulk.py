@@ -24,15 +24,17 @@ class Channel:
     """An event channel of a medium: rate 1 / length(lam), outgoing direction drawn from ``lobe``.
 
     With ``reemit`` (a spectrum of ``lumen.media.spectra``) the channel is absorption by a wavelength shifter or a
-    scintillator component: the photon is re-emitted with probability ``p["yield"]`` (the event's live weight) at a
-    new wavelength from the spectrum, after a delay drawn from Exp(``p["tau"]``). Its parameters are
-    ``{"length": ..., "yield": ..., "tau": ...}``.
+    scintillator component: the photon is re-emitted with weight ``p["yield"]`` (the mean number of photons per
+    absorption, a factor on the event's live weight) at a new wavelength from the spectrum, after a delay of
+    ``p["tau"]`` under ``time_profile``: "exponential" (drawn from Exp(tau)) or "delta" (tau itself, G4OpWLS's
+    default). Its parameters are ``{"length": ..., "yield": ..., "tau": ...}``.
     """
 
     name: str
     lobe: Lobe
     length: laws.Law
     reemit: object = None
+    time_profile: str = "exponential"
 
 
 @dataclass(frozen=True, eq=False)

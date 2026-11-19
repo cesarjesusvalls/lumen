@@ -123,7 +123,7 @@ or surface.
 | `<what>: ground dielectric_dielectric (facet refraction) is not supported` | as above |
 | `<what>: <key> is not supported` · `<what>: <key> (<why>) is not supported` | a property lumen does not read (SURFACEROUGHNESS, for example). Remove it, or ask for it |
 | warning `<what>: a user GROUPVEL (not Geant4's own from RINDEX) is not read: photons are timed by RINDEX's group index, unlike Geant4` | the counts are Geant4's; the arrival times in that material follow RINDEX, where Geant4 uses your table ([known limits](../explanation/known-limits.md#a-user-groupvel)) |
-| `<what>: polish <value> outside [0, <max>] (or exactly 1)` · `<what>: sigma_alpha <value> outside [<min>, <max>]` | the opticalsurface `value` is outside what float32 resolves |
+| `<what>: polish <value> outside [0, <max>] (or exactly 1)` · `<what>: sigma_alpha <value> outside [<min>, <max>] (or exactly 0)` | the opticalsurface `value` is outside what float32 resolves (sigma_alpha exactly 0 is read: Geant4 then reflects the lobe about the normal) |
 | `<what>: TRANSMITTANCE on a metal would put the photon into it` | remove TRANSMITTANCE from the dielectric_metal surface |
 | `<what>: EFFICIENCY > 0 makes it a detecting surface; bind a sensor instead` | put the volume behind it in a sensor group, or set EFFICIENCY to 0 |
 | `<what>: <key> must be a table` · `<what>: <key> must be a constant (G4OpMieHG reads a constant property)` | the property has the wrong shape for what Geant4 reads |
@@ -131,7 +131,7 @@ or surface.
 | `<what>: MIEHG_FORWARD_RATIO <r> without <key>: G4OpMieHG aborts (mat202) at the first <lobe> Mie event; add <key>` | add MIEHG_FORWARD or MIEHG_BACKWARD |
 | `<what>: MIEHG_FORWARD_RATIO <r> outside [0, 1]` · `<what>: <key> <g> outside [-0.999, 0.999] (a narrower lobe than float32 directions resolve)` | fix the value |
 | `<what>: WLSABSLENGTH without WLSCOMPONENT (G4OpWLS absorbs and emits nothing)` | add WLSCOMPONENT, or remove WLSABSLENGTH |
-| `<what>: WLSTIMECONSTANT <tau> ns: Geant4's default WLS time profile is 'delta' (a fixed delay); lumen's delay is exponential: declare wls_time_profile='exponential' if that is the Geant4 configuration` | say which time profile your Geant4 run uses |
+| `<what>: WLS time profile <profile> is not one of ('delta', 'exponential') (G4OpWLS)` | the material's `wls_time_profile` setting names Geant4's profile: "delta" (the default) or "exponential" |
 | `material <name>: no <keys> for Geant4 <version><hint>` · `geant4 must be '11' or '10.7', got <value>` | scintillation keys differ between Geant4 10.7 and 11; give the ones of your version |
 | `index must be 'geant4' or 'tabulated', got <value>` | a recipe option spelt wrongly |
 | `opticalsurface <name>: <key> varies by <amount> over <range> nm: a complex index is taken at one wavelength (narrow the range or supply a spectral reader)` | a complex-index cathode is read at one wavelength in 0.1 |
@@ -151,6 +151,8 @@ or surface.
 | `sensor group <name>: rule <rule> is not one of ('border_into', 'any_entry')` | `ValueError` | spell the rule |
 | `sensor group <name>: give exactly one of lv and lv_pattern` | `ValueError` | select by name or by pattern, not both |
 | `sensor groups <names>: one border_into group is supported` | `LibraryError` | 0.1 has one `border_into` group per detector |
+| `sensor PV <pv> (entry='skin') is transparent: a photon leaving it would meet its skin again, which a skin sensor does not model; bind it with entry 'any'` | `DescriptionError` | a `border_into` volume whose own skin detects must be opaque (no RINDEX), as Geant4's photocathode volumes are; count it on entry (`any_entry`) instead |
+| `next100: nexus sensor ids are not unique` | `ValueError` | the NEXT-100 recipe's id map (SensorSD::FindSensorID's numbers) found two sensors with one id: the GDML is not nexus's NEXT-100 |
 | `sensor group <name>: border_into reads its surfaces with one of <readers>, not <surface>` | `LibraryError` | the surface reader is `SensorGroup.surface`: `lumen:geant4`, `lumen:complex_index` or a registered reader |
 | `sensor group <name>: any_entry counts with the surface reader 'lumen:counting', not <surface>` | `LibraryError` | an `any_entry` group is read by `lumen:counting` |
 | `sensor group <name>: model <model> needs its value set (defaults)` | `ValueError` | give `defaults=` (a shipped `lumen:<set>@<version>` or a JSON path) |

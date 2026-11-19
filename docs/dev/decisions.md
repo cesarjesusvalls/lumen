@@ -152,3 +152,32 @@ check gives Geant4 the same repaired copy.
 separate media only split the surface lookup's classes. The SBND and MicroBooNE recipes bound their opaque materials
 to one medium by hand; the general rule does it for every detector.
 **Where.** `build/library.py` (`OPAQUE_MEDIUM`).
+
+## 20. A bulk wavelength shifter's photon count and delay as Geant4's G4OpWLS
+
+**Decision.** WLSMEANNUMBERPHOTONS on a bulk wavelength shifter is read as the re-emitted photon's weight (its key
+`materials/<M>/WLSMEANNUMBERPHOTONS` a parameter; one photon without it, OUT). WLSTIMECONSTANT delays the re-emission
+under G4OpWLS's time profile: "delta" (the constant itself), Geant4's default, or "exponential", declared as the
+material's optics setting `wls_time_profile` (a recipe decision, recorded with origin "recipe").
+**Why.** G4OpWLS emits a Poisson number of photons of that mean, each drawn alike: one photon weighted by the mean has
+the same expectation, which is what lumen computes. The time profile is a Geant4 run setting
+(`/process/optical/wls/setTimeProfile`), not in the GDML; Geant4's default applies when nothing is declared, as for
+every other Geant4 default lumen reads, and a recipe whose experiment software sets "exponential" says so. NEXT-100's
+TPB (nexus) has both a mean of 0.65 and a 1.2 ns constant under the default profile.
+**Where.** `rules/optics.py` (`_wls_channel`, `wls_yield`), `media/bulk.py` (`Channel.time_profile`),
+`transport/medium.py` (`reemit_draw`), `build/library.py` (the yield's key).
+**Revisit.** A WLS film (`wls_film`) still refuses a nonzero WLSTIMECONSTANT: its re-emission is drawn by the surface
+step, which has no profile yet.
+
+## 21. A unified ground metal of sigma_alpha 0 reflects its lobe about the normal
+
+**Decision.** A unified, ground dielectric_metal with sigma_alpha exactly 0 is lowered to `UNIFIED_METAL_FLAT` (or
+`DIELECTRIC_METAL_FLAT` on a sensor): spike and lobe both specular about the global normal, then backscatter and
+Lambertian by Geant4's cuts. Its sigma_alpha is not a parameter (Geant4 never reads it as a width there), and neither is
+glisur's polish of 1, for the same reason.
+**Why.** `G4OpBoundaryProcess::GetFacetNormal` returns the global normal when sigma_alpha is 0 (Geant4 11.3,
+G4OpBoundaryProcess.cc:673-676), so Geant4's lobe reflection is a mirror; ChooseReflection still applies the
+backscatter and Lambertian constants, so the surface is not SPECULAR_METAL. A facet lobe of width 0 has no density to
+reweight. NEXT-100's meshes and copper plate (nexus) are written this way.
+**Where.** `rules/optics.py` (`_metal`, `_ground_metal_sensor`, `samples_facet`), `surfaces/types.py`,
+`build/spec.py` (`value_read`).

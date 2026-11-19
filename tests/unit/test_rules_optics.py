@@ -82,6 +82,9 @@ def test_media(df):
     assert [c.name for c in e.medium.channels] == ["rayleigh"]
     w = rules.medium(df.materials["Shifter"], "shifter")
     assert [c.name for c in w.medium.channels] == ["wls"] and w.params["wls"]["yield"] == 1.0
+    assert w.medium.channels[0].time_profile == "delta"  # G4OpticalParameters' default (decision 20)
+    x = rules.medium(df.materials["Shifter"], "shifter", wls_time_profile="exponential")
+    assert x.medium.channels[0].time_profile == "exponential"
     assert w.medium.name == "shifter" and repr(w.medium.channels[0].reemit) == "EnergySpectrum(shifter.WLSCOMPONENT)"
     assert rules.medium(df.materials["Steel"]).medium.opaque
     bulk.validate(e.medium, e.params, 100.0, 900.0)
@@ -99,17 +102,17 @@ def test_refused_media(df):
     liq = df.materials["Liq"]
     one = schema.Property("X", np.asarray(1.0))
     # MIEHG is read now (test_mie.py)
-    for key, why in (("WLSABSLENGTH2", "second WLS"), ("WLSMEANNUMBERPHOTONS", "Poisson"),
+    for key, why in (("WLSABSLENGTH2", "second WLS"), ("WLSMEANNUMBERPHOTONS2", "second WLS"),
                      ("REALRINDEX", "complex index")):  # fmt: skip
         with pytest.raises(rules.OpticsRefused, match=why):
             rules.medium(_with(liq, **{key: one}))
     with pytest.raises(rules.OpticsRefused, match="must be a table"):
         rules.medium(_with(liq, ABSLENGTH=schema.Property("ABSLENGTH", np.asarray(1.0))))
-    sh = df.materials["Shifter"]
-    with pytest.raises(rules.OpticsRefused, match="'delta'"):
-        rules.medium(_with(sh, WLSTIMECONSTANT=schema.Property("WLSTIMECONSTANT", np.asarray(2.0))))
-    rules.medium(_with(sh, WLSTIMECONSTANT=schema.Property("WLSTIMECONSTANT", np.asarray(2.0))),
-                 wls_time_profile="exponential")  # fmt: skip
+    sh = _with(df.materials["Shifter"], WLSTIMECONSTANT=schema.Property("WLSTIMECONSTANT", np.asarray(2.0)))
+    with pytest.raises(rules.OpticsRefused, match="time profile 'flat' is not one of"):
+        rules.medium(sh, wls_time_profile="flat")
+    with pytest.raises(rules.OpticsRefused, match="WLSMEANNUMBERPHOTONS must be a constant >= 0"):
+        rules.medium(_with(sh, WLSMEANNUMBERPHOTONS=schema.Property("WLSMEANNUMBERPHOTONS", np.asarray(-0.5))))
     without = dataclasses.replace(sh, properties={k: v for k, v in sh.properties.items() if k != "WLSCOMPONENT"})
     with pytest.raises(rules.OpticsRefused, match="without WLSCOMPONENT"):
         rules.medium(without)
@@ -315,5 +318,5 @@ def test_wls_mean_number_of_photons_is_the_yield(tmp_path_factory, mean):
     dfm = read_toy(tmp_path_factory, toy, "toy_mean.gdml")
     e = rules.wls_film(dfm.materials["Shifter"], dfm.materials["Liq"], dfm.surfaces["paint"], 1e-6, (0, 0, 1))
     assert abs(float(e.params["eta"]) - mean) < 1e-12
-    with pytest.raises(rules.OpticsRefused, match="Poisson"):  # a bulk medium refuses the count
-        rules.medium(dfm.materials["Shifter"])
+    # in a bulk medium too: the WLS channel's yield (a weight on the re-emitted photon), decision 20
+    assert abs(float(rules.medium(dfm.materials["Shifter"]).params["wls"]["yield"]) - mean) < 1e-12

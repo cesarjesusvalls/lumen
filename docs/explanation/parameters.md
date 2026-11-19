@@ -20,8 +20,11 @@ add a process.
 
 Other values Geant4 never reads:
 
-- the surface value (sigma_alpha or polish) on a polished or painted finish, where no facet is sampled;
-- a WLS film's yield when the material has no WLSMEANNUMBERPHOTONS: G4OpWLS then emits exactly one photon;
+- the surface value (sigma_alpha or polish) on a polished or painted finish, where no facet is sampled, and on a
+  ground dielectric_metal whose sigma_alpha is 0 or whose polish is 1: Geant4 then takes the global normal as the
+  facet (`G4OpBoundaryProcess::GetFacetNormal`), so a unified lobe reflection is a mirror and the lobe fraction joins
+  the spike's (the `unified_metal_flat` surface type);
+- a WLS yield (film or bulk) when the material has no WLSMEANNUMBERPHOTONS: G4OpWLS then emits exactly one photon;
 - the film's thickness and side, which are geometry.
 
 A worked case: MicroBooNE's steel follows LArSoft's reflector (`lumen:larsoft_reflector`), which reflects specularly
