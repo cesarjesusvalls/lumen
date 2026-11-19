@@ -9,9 +9,10 @@ expectation and a continuing one is drawn by the step; directions come from the 
 and after at lam), the photon's Jones vector ``er``, ``ei`` and, on a layered surface, ``layer``. Without the Jones
 vector the Fresnel shares are the unpolarised ones and a type with no ``amps`` is a perfect mirror.
 
-There are sixteen types plus ``coated`` (a wavelength-shifting film over any opaque type): PASS, ABSORBER,
+There are eighteen types plus ``coated`` (a wavelength-shifting film over any opaque type): PASS, ABSORBER,
 DIELECTRIC, DIELECTRIC_RT, DIELECTRIC_RT_SENSOR, REFLECTOR, SENSOR, PHOTOCATHODE, COUNTING, DIELECTRIC_METAL,
-GLISUR_METAL, GLISUR_METAL_EFF, SPECULAR_METAL, UNIFIED_METAL, PAINTED and PAINTED_T.
+DIELECTRIC_METAL_FLAT, GLISUR_METAL, GLISUR_METAL_EFF, SPECULAR_METAL, UNIFIED_METAL, UNIFIED_METAL_FLAT, PAINTED and
+PAINTED_T.
 """
 
 from collections.abc import Callable
@@ -280,8 +281,8 @@ def _dielectric_metal(p, ctx):
     p_spike), the facet lobe (SPECULARLOBECONSTANT p_lobe, width sigma_alpha), a backscatter (BACKSCATTERCONSTANT
     p_back) or Lambertian (the rest). Finish polished is p_spike = 1 (Geant4 ignores the constants there). Ground with
     sigma_alpha = 0 is not: GetFacetNormal returns the normal but ChooseReflection still applies the backscatter and
-    Lambertian constants, so the importer refuses sigma_alpha = 0 on a ground finish. TRANSMITTANCE is not part of
-    this type: it would put the photon into an opaque medium.
+    Lambertian constants; that case is DIELECTRIC_METAL_FLAT. TRANSMITTANCE is not part of this type: it would put the
+    photon into an opaque medium.
     """
     r, a = chained_cuts(p["R"])
     ss, sl, bs, lam = chained_cuts(p["p_spike"], p["p_lobe"], p["p_back"])
@@ -301,6 +302,37 @@ DIELECTRIC_METAL = SurfaceType(
     (SPECULAR, BACKSCATTER, GLOSSY, DIFFUSE, DETECT, ABSORB),
     _dielectric_metal,
     _sigma_alpha,
+)
+
+
+def _flat_shares(p):
+    """Return R's (specular, backscatter, diffuse, absorbed) shares of a unified ground metal of sigma_alpha 0.
+
+    G4OpBoundaryProcess::GetFacetNormal returns the global normal when sigma_alpha is 0, so ChooseReflection's lobe
+    reflects about the normal like its spike: both are specular. The backscatter and Lambertian constants still apply.
+    """
+    r, a = chained_cuts(p["R"])
+    ss, sl, bs, lam = chained_cuts(p["p_spike"], p["p_lobe"], p["p_back"])
+    return r * (ss + sl), r * bs, r * lam, a
+
+
+def _unified_metal_flat(p, ctx):
+    spec, back, diff, a = _flat_shares(p)
+    return outcome_vector(specular=spec, backscatter=back, diffuse=diff, absorb=a)
+
+
+def _dielectric_metal_flat(p, ctx):
+    spec, back, diff, a = _flat_shares(p)
+    return outcome_vector(specular=spec, backscatter=back, diffuse=diff, detect=a * p["eff"],
+                          absorb=a * (1.0 - p["eff"]))  # fmt: skip
+
+
+# dielectric_metal, unified, ground, sigma_alpha 0, detecting with EFFICIENCY eff (``_flat_shares``)
+DIELECTRIC_METAL_FLAT = SurfaceType(
+    "dielectric_metal_flat",
+    ("R", "p_spike", "p_lobe", "p_back", "eff"),
+    (SPECULAR, BACKSCATTER, DIFFUSE, DETECT, ABSORB),
+    _dielectric_metal_flat,
 )
 
 
@@ -350,6 +382,13 @@ UNIFIED_METAL = SurfaceType(
     (SPECULAR, BACKSCATTER, GLOSSY, DIFFUSE, ABSORB),
     _unified_metal,
     _sigma_alpha,
+)
+# dielectric_metal, unified, ground, sigma_alpha 0: the lobe is a mirror about the normal (``_flat_shares``)
+UNIFIED_METAL_FLAT = SurfaceType(
+    "unified_metal_flat",
+    ("R", "p_spike", "p_lobe", "p_back"),
+    (SPECULAR, BACKSCATTER, DIFFUSE, ABSORB),
+    _unified_metal_flat,
 )
 
 
@@ -532,10 +571,12 @@ TYPES = (
     PHOTOCATHODE,
     COUNTING,
     DIELECTRIC_METAL,
+    DIELECTRIC_METAL_FLAT,
     GLISUR_METAL,
     GLISUR_METAL_EFF,
     SPECULAR_METAL,
     UNIFIED_METAL,
+    UNIFIED_METAL_FLAT,
     PAINTED,
     PAINTED_T,
 )

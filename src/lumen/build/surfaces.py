@@ -157,7 +157,9 @@ class SensorBinding:
 
     ``entry``: "any" -- every crossing into the PV meets the sensor type; "border" -- only the crossings across a
     border bound to this sensor do, any other entry resolves as if the PV were no sensor (Geant4's photocathode is a
-    border surface, not the volume).
+    border surface, not the volume); "skin" -- the crossings where Geant4's rule picks the PV's own skin surface (no
+    border for the pair; post's skin first when entering from its mother, else after pre's): the photocathode is the
+    sensitive volume's skin (nexus's PMTs and SiPMs). A "skin" sensor PV must be opaque (no photon leaves it).
     """
 
     sensor: str
@@ -193,13 +195,16 @@ class Description:
     borders: Mapping[tuple[str, str], str]
     disjoint: frozenset  # of frozenset({a, b})
     disjoint_lvs: frozenset  # LVs whose sibling placements never touch
-    sensor_entry: Mapping[str, str] = field(default_factory=dict)  # sensor PV -> "any" | "border"
+    sensor_entry: Mapping[str, str] = field(default_factory=dict)  # sensor PV -> "any" | "border" | "skin"
 
-    def enters_sensor(self, pre, post):
-        """Return whether the crossing pre -> post meets post's sensor type."""
+    def enters_sensor(self, pre, post, rel=None):
+        """Return whether the crossing pre -> post (``rel``: post relative to pre) meets post's sensor type."""
         if self.sensor[post] is None:
             return False
-        return self.sensor_entry.get(post, "any") == "any" or self.borders.get((pre, post)) == self.sensor[post]
+        entry = self.sensor_entry.get(post, "any")
+        if entry == "skin":  # G4OpBoundaryProcess: the border first, then post's skin entering a daughter, else pre's
+            return (pre, post) not in self.borders and (rel == "daughter" or self.skin[pre] is None)
+        return entry == "any" or self.borders.get((pre, post)) == self.sensor[post]
 
     def is_disjoint(self, a, b):
         """Return whether two sibling PVs are declared never to touch."""
@@ -283,8 +288,8 @@ def _bind_sensors(library, tree, b):
     for sb in sorted(b.sensors, key=lambda s: (s.sensor, s.lv or "", s.pv or "")):
         if (sb.lv is None) == (sb.pv is None):
             raise DescriptionError(f"sensor binding {sb}: give exactly one of lv= or pv=")
-        if sb.entry not in ("any", "border"):
-            raise DescriptionError(f"sensor binding {sb}: entry must be 'any' or 'border'")
+        if sb.entry not in ("any", "border", "skin"):
+            raise DescriptionError(f"sensor binding {sb}: entry must be 'any', 'border' or 'skin'")
         if sb.sensor not in library.sensors:
             raise DescriptionError(f"sensor binding {sb}: {sb.sensor!r} is not a library sensor")
         if sb.lv is not None:
@@ -337,6 +342,9 @@ def resolve(library: Library, tree, bindings: Bindings) -> Description:
     skin = {n: b.skins.get(tree.by_name[n].lv) for n in tree.order}
     _check_sensor_borders(library, b, sensor, entry, skin)
     medium = {n: b.materials[tree.by_name[n].material] for n in tree.order}
+    for n in sorted(n for n in sensor if entry[n] == "skin" and not library.media[medium[n]].medium.opaque):
+        raise DescriptionError(f"sensor PV {n!r} (entry='skin') is transparent: a photon leaving it would meet its "
+                               "skin again, which a skin sensor does not model; bind it with entry 'any'")  # fmt: skip
     return Description(library, tree, b, medium, skin, {n: sensor.get(n) for n in tree.order}, dict(b.borders),
                        frozenset(disjoint), disjoint_lvs, entry)  # fmt: skip
 
@@ -551,9 +559,9 @@ class _Regions:
     sensor = property(lambda self: self.d.sensor)
     medium = property(lambda self: self.d.medium)
 
-    def enters_sensor(self, pre, post):
+    def enters_sensor(self, pre, post, rel=None):
         """Return whether the crossing pre -> post meets post's sensor type."""
-        return self.d.enters_sensor(pre, post)
+        return self.d.enters_sensor(pre, post, rel)
 
     def material(self, pv):
         """Return a PV's tree material."""

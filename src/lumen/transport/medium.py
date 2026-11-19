@@ -4,7 +4,8 @@ One ``lax.switch`` branch per medium (a real per-photon branch under tallymap) a
 event's direction. A channel's lobe is drawn at the reference values and weighted by its live / reference density; a
 polarised phase function (Rayleigh) is drawn from the photon's own state. After a scattering the state is projected on
 the plane perpendicular to the new direction (G4OpRayleigh's rule, and G4OpMieHG's); a re-emitted photon is
-unpolarised, at a wavelength drawn from the channel's spectrum after a delay drawn from Exp(tau) (G4OpWLS). Mie
+unpolarised, at a wavelength drawn from the channel's spectrum after a delay of tau under the channel's time profile
+(G4OpWLS: "delta", tau itself, or "exponential", drawn from Exp(tau)), weighted by the mean photon count. Mie
 (G4OpMieHG) is a channel like any other: a medium without MIEHG has no Mie branch.
 """
 
@@ -79,9 +80,14 @@ def spectrum_arrays(model, ops):
     return lambda spec: ops.tables["spectra"][ids.index(id(spec))]
 
 
-def reemit_draw(spec, tau, rand, arrays_of):
-    """Return (wavelength, delay) of a re-emission: the spectrum's draw and Exp(tau), from two uniforms."""
-    return sg(spec.sample(rand[0], arrays_of(spec))), -tau * jnp.log(rand[1])
+def reemit_draw(spec, tau, rand, arrays_of, profile="exponential"):
+    """Return (wavelength, delay) of a re-emission: the spectrum's draw and the delay under ``profile``.
+
+    "exponential": Exp(tau) from the second uniform; "delta": tau itself (G4WLSTimeGeneratorProfileDelta). The
+    uniforms are drawn either way, so the photon's random numbers do not depend on the profile.
+    """
+    delay = tau if profile == "delta" else -tau * jnp.log(rand[1])
+    return sg(spec.sample(rand[0], arrays_of(spec))), delay
 
 
 def _lobe_fns(lobe):
@@ -128,7 +134,7 @@ def channel_draw(model, ops, mi, c, d, pol, lam, rand):  # noqa: PLR0913 -- the 
                 if ch.reemit is None:
                     return BulkDraw(w_c, lp, lpr, lam, F32(0.0), F32(1.0), *st, sens)
                 v = pm[med.name][ch.name]
-                lam2, delay = reemit_draw(ch.reemit, v["tau"], rand["reemit"], arrays_of)
+                lam2, delay = reemit_draw(ch.reemit, v["tau"], rand["reemit"], arrays_of, ch.time_profile)
                 return BulkDraw(w_c, lp, lpr, lam2, delay, jnp.asarray(v["yield"], F32), *st, sens)
 
             branches.append(f)

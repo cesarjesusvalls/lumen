@@ -139,12 +139,13 @@ VALUE_TYPES = {
     "a number": _number,
     "true or false": lambda v: isinstance(v, bool),
     "a 3-vector": _vector,
+    "delta or exponential": lambda v: v in ("delta", "exponential"),  # G4OpWLS's time profiles
 }
 # the settings an optics model records (lumen.build.library reads them) and the build options, by kind
 OPTICS_SETTINGS = {
     "medium": "a name", "material": "a name", "film_material": "a name", "front_material": "a name",
     "backing": "a name", "thickness_m": "a number", "local_axis": "a 3-vector",
-    "scatter": "true or false", "absorb": "true or false",
+    "scatter": "true or false", "absorb": "true or false", "wls_time_profile": "delta or exponential",
 }  # fmt: skip
 
 

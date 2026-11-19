@@ -8,6 +8,8 @@ Each material, surface and sensor group names the optics model that reads it (``
 Materials
     ``geant4`` (the default)  Geant4's reading (``lumen.rules.optics.medium``); the medium is named
                               ``settings["medium"]`` (default the material's name); without RINDEX it is opaque.
+                              ``settings["wls_time_profile"]``: G4OpWLS's delay ("delta", Geant4's default, or
+                              "exponential"), a Geant4 run setting the GDML does not carry.
     ``lumen:opaque``          an opaque medium.
     Every opaque material shares one medium, ``OPAQUE_MEDIUM`` (docs/dev/decisions.md, 19).
     ``lumen:same_as``         bound to the medium of material ``settings["material"]`` (an index-matched film lowered
@@ -29,8 +31,10 @@ Skins and borders
     with the sensor set's ``border_into`` group (``border_library``).
 Sensor groups
     ``border_into`` with surface reader ``lumen:geant4``: the borders into the group's volumes are sensors through
-    the surface's own detection (``settings["efficiency_on_entry"]`` replaces the efficiency on entry, the sensors are
-    named ``<settings["name_prefix"] or the group name>:<surface>``); with sensor model ``lumen:pmt`` every
+    the surface's own detection, and so is a group volume's own skin when it detects (``skin_sensor_lvs``: Geant4's
+    photocathode skin on a sensitive volume), where Geant4's rule picks it (``settings["efficiency_on_entry"]``
+    replaces the efficiency on entry, the sensors are named ``<settings["name_prefix"] or the group
+    name>:<surface>``); with sensor model ``lumen:pmt`` every
     absorption entering is counted (efficiency 1 on entry) and the PMT's QE, CE and efficiency apply after tracking
     (``lumen.sensors``). ``any_entry`` with surface reader ``lumen:counting``: a counting sensor of efficiency
     ``settings["efficiency"]`` on every placement of the group's volumes.
@@ -131,7 +135,8 @@ def _material_medium(rec: schema.Material):
 def geant4_medium(rec):
     """``geant4``: Geant4's reading (``lumen.rules.optics.medium``), named ``settings["medium"]``."""
     name = rec.optics.settings.get("medium", rec.name)
-    return name, rules.medium(rec, name), _medium_sources(rec)
+    entry = rules.medium(rec, name, wls_time_profile=rec.optics.settings.get("wls_time_profile"))
+    return name, entry, _medium_sources(rec)
 
 
 def opaque_medium(rec):
@@ -227,12 +232,12 @@ def _effective_skins(df):
     return out
 
 
-def _surfaces(df, tree, films):
+def _surfaces(df, tree, films, skin_sensors=()):
     lvs = set(tree.lv_material)
     surfaces, skins, sources = {}, {}, {}
     for lv, s in _effective_skins(df).items():
         rec = df.surfaces[s]
-        if rec.optics.name == "lumen:wls_film" or lv not in lvs:
+        if rec.optics.name == "lumen:wls_film" or lv not in lvs or lv in skin_sensors:
             continue
         surfaces[s], skins[lv] = surface_entry(rec), s
         sources[s] = _surface_sources(rec, surfaces[s].params)
@@ -308,9 +313,10 @@ def library_and_bindings(df: schema.DetectorFile, tree, instances, sensor_set):
     """
     tree, films = split_films(df, tree, instances)
     media, bind, msrc = _media(df, tree)
-    surfaces, skins, ssrc = _surfaces(df, tree, films)
     pvs, how, group = _border_groups(df, tree, sensor_set.groups)
-    sensors, bsurf, borders, sbind = border_library(df, tree, pvs, df.wavelength_range, how)
+    skin_sensors = skin_sensor_lvs(df, tree, pvs)
+    surfaces, skins, ssrc = _surfaces(df, tree, films, skin_sensors)
+    sensors, bsurf, borders, sbind = border_library(df, tree, pvs, df.wavelength_range, how, skin_sensors)
     for name, e in bsurf.items():
         if name not in surfaces:
             surfaces[name], ssrc[name] = e, _surface_sources(df.surfaces[name], e.params)
@@ -385,7 +391,9 @@ def _medium_sources(rec: schema.Material):
     if "WLSABSLENGTH" in pr:
         out.update({("wls", "length") + k: v for k, v in _table_or_constant(f"{m}/WLSABSLENGTH", pr["WLSABSLENGTH"],
                                                                              "").items()})  # fmt: skip
-        out[("wls", "yield")] = Source(None, "fixed", "one photon per absorption (G4OpWLS)")
+        out.update({("wls", "yield") + k: v for k, v in _table_or_constant(
+            f"{m}/WLSMEANNUMBERPHOTONS", pr.get("WLSMEANNUMBERPHOTONS"),
+            "one photon per absorption (G4OpWLS without WLSMEANNUMBERPHOTONS)").items()})  # fmt: skip
         out.update(
             {
                 ("wls", "tau") + k: v
@@ -606,15 +614,28 @@ def border_bindings(df, tree) -> dict:
     return out
 
 
-def border_library(df, tree, sensor_pvs, lam_domain=None, how: BorderSensor | None = None):
+def skin_sensor_lvs(df, tree, sensor_pvs) -> dict:
+    """Return {LV: skin surface} of the sensor volumes whose own skin detects (EFFICIENCY > 0).
+
+    Geant4 detects there when the boundary process picks that skin and invokes the sensitive detector of the volume
+    entered (``/process/optical/boundary/setInvokeSD``, nexus's PMTs and SiPMs): the skin is the sensor's surface,
+    read like a border into it (SensorBinding entry "skin"), never a surface of its own.
+    """
+    lvs = {tree.by_name[p].lv for p in sensor_pvs}
+    return {lv: s for lv, s in _effective_skins(df).items()
+            if lv in lvs and rules.nonzero(df.surfaces[s].properties, "EFFICIENCY")}  # fmt: skip
+
+
+def border_library(df, tree, sensor_pvs, lam_domain=None, how: BorderSensor | None = None, skin_sensors=None):
     """Return the GDML's border surfaces with its sensors: (sensors, surfaces, borders, sensor bindings).
 
     Exactly in the directions the GDML defines them (G4LogicalBorderSurface: ordered pv1 -> pv2). A border INTO a
     sensor volume is that sensor (the photon absorbed-and-detected there by the surface's sensor model,
     ``lumen.rules.optics.sensor``); a border OUT OF one whose surface detects is a sensor too, its hit credited to the
     volume left (Geant4's Detection leaving a sensitive volume, e.g. WCSim's ProcessHits_boundary); any other border
-    is its surface. A sensor volume detects only across its borders (SensorBinding entry "border"). ``how``: the
-    sensor model, the efficiency on entry and the sensors' name prefix (BorderSensor).
+    is its surface. A sensor volume detects only across its borders (SensorBinding entry "border"), or, when its own
+    skin detects (``skin_sensors``, {LV: surface}), where Geant4 picks that skin (entry "skin"). ``how``: the sensor
+    model, the efficiency on entry and the sensors' name prefix (BorderSensor).
 
     Returns sensors {name: SensorEntry}, surfaces {name: SurfaceEntry}, borders {(pre, post): name} and the sensor
     bindings.
@@ -622,6 +643,11 @@ def border_library(df, tree, sensor_pvs, lam_domain=None, how: BorderSensor | No
     how = BorderSensor() if how is None else how
     n_lv = Counter(tree.by_name[p].lv for p in sensor_pvs)
     sensors, surfaces, borders, sbind, bound = {}, {}, {}, [], set()
+    for lv, s in sorted((skin_sensors or {}).items()):
+        k = f"{how.prefix}:{s}"
+        if k not in sensors:
+            sensors[k] = _sensor_entry(df.surfaces[s], lam_domain, how, eff=how.eff_in)
+        sbind.append(regions.SensorBinding(k, n_lv[lv], lv=lv, entry="skin"))
     for (pre, post), s in sorted(border_bindings(df, tree).items()):
         rec = df.surfaces[s]
         if post in sensor_pvs:

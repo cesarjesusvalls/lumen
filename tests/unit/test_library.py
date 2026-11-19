@@ -126,6 +126,37 @@ def test_border_sensors(toy):
     assert src[("sensors", "tube:pdieR", "eff")] == glue.Source("sensors/pmt/efficiency_on_entry", "setting")
 
 
+def test_skin_sensors(toy):
+    """A sensitive volume whose own skin detects (nexus's photocathodes) is a sensor where Geant4 picks that skin:
+    from its mother (post's skin first) and from a sibling without a skin of its own, not past a sibling's skin."""
+    df = decided(toy)
+    df = dataclasses.replace(df, skins=df.skins + (schema.Skin("cathode", "eff", "Blk", "recipe"),))
+    group = SensorGroup("pmt", "border_into", "lumen:geant4", lv_pattern="^Blk$")
+    sset = SensorSet("default", (group,) + COUNTING.groups)
+    assert glue.skin_sensor_lvs(df, tree(*TREE), {"w/blk1/Blk"}) == {"Blk": "eff"}
+    t, lib, b, src = glue.library_and_bindings(df, tree(*TREE), INSTANCES, sset)
+    e = lib.sensors["pmt:eff"]
+    assert e.surface_type.name.startswith("sensor") and e.params["qe"] == 0.5 and "Blk" not in b.skins
+    assert regions.SensorBinding("pmt:eff", 1, lv="Blk", entry="skin") in b.sensors
+    assert src[("sensors", "pmt:eff", "qe")].key == "surfaces/eff/EFFICIENCY"  # the surface's own efficiency
+    o = regions.compile(lib, t, b, LAM)
+    assert o.pair("w/W", "w/blk1/Blk").origin == "sensor:pmt:eff"  # entering from its mother
+    assert o.pair("w/other/X", "w/blk1/Blk").origin == "sensor:pmt:eff"  # from a sibling without a skin
+    # a sibling's own skin comes first (G4OpBoundaryProcess: pre's skin when post is not pre's daughter)
+    df2 = dataclasses.replace(df, skins=df.skins + (schema.Skin("x", "glispol", "X", "recipe"),))
+    t2, lib2, b2, _ = glue.library_and_bindings(df2, tree(*TREE), INSTANCES, sset)
+    o2 = regions.compile(lib2, t2, b2, LAM)
+    assert o2.pair("w/other/X", "w/blk1/Blk").origin == "surface:glispol"
+    assert o2.pair("w/W", "w/blk1/Blk").origin == "sensor:pmt:eff"
+    # a transparent skin sensor would meet its skin again leaving: refused
+    df3 = decided(toy)
+    df3 = dataclasses.replace(df3, skins=df3.skins + (schema.Skin("ss", "eff", "Sen", "recipe"),))
+    s3 = SensorSet("default", (SensorGroup("pmt", "border_into", "lumen:geant4", lv_pattern="^Sen$"),))
+    t3, lib3, b3, _ = glue.library_and_bindings(df3, tree(*TREE), INSTANCES, s3)
+    with pytest.raises(regions.DescriptionError, match="is transparent"):
+        regions.compile(lib3, t3, b3, LAM)
+
+
 def test_larsoft_encodings(toy):
     from lumen.detectors import larsoft_optics as lar
 

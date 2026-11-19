@@ -25,7 +25,7 @@ What is not built yet. A release that builds an item removes it from here and re
 - A photon reflected at a junction of touching volumes continues in the volume it came from (today counted `lost`).
 - A user GROUPVEL read as Geant4 reads it (today inert, with a warning).
 - Refractive-index derivatives; the shadow-edge term of the moving-source method.
-- Bulk `WLSMEANNUMBERPHOTONS` and WLS2; LUT, LUTDAVIS, dichroic and latent-facet finishes.
+- WLS2; a WLS film's time profile; LUT, LUTDAVIS, dichroic and latent-facet finishes.
 - Tracks and LAr recombination; geometry calibration.
 - One float32 tolerance form for the navigator, the overlap check and the step (`rules/navigation.py` keeps three
   sites and two forms).

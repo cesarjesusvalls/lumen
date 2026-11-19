@@ -3,6 +3,25 @@
 Changes a user of lumen can see, newest first. Each entry says what changed, what an old file, key or script does
 now, and what to do.
 
+## Unreleased
+
+Added:
+
+- A bulk wavelength shifter's WLSMEANNUMBERPHOTONS is read (G4OpWLS's mean photon count, a weight on the re-emitted
+  photon, exact in expectation) instead of refused; its key `materials/<M>/WLSMEANNUMBERPHOTONS` is a parameter.
+- A bulk WLSTIMECONSTANT is read under Geant4's default time profile, "delta" (the photon is re-emitted exactly that
+  much later), instead of refused; a recipe whose Geant4 run uses "exponential" sets the material's optics setting
+  `wls_time_profile` (`OpticsModel("geant4", 1, {"wls_time_profile": "exponential"}, "recipe", ...)`).
+- A unified, ground dielectric_metal with sigma_alpha exactly 0 is read (Geant4 then reflects the lobe about the
+  normal: surface types `unified_metal_flat`, `dielectric_metal_flat` on a sensor) instead of refused. Such a
+  surface, and a glisur ground one of polish 1, has no `sigma_alpha` / `polish` key: Geant4 never reads that value
+  there. A calibration that set one of those keys is refused as an unknown key: drop the key.
+- A `border_into` sensor volume whose own skin surface detects (EFFICIENCY > 0) is a sensor where Geant4 picks that
+  skin (sensor binding entry "skin"), as with nexus's photocathodes, instead of refused.
+- `lumen.detectors.nexus`, the NEXT-100 recipe (`next100`, from nexus's GDML at `LUMEN_DATA/gdml/next100.gdml`): it
+  converts, with nexus's sensor ids; loading it is refused until the surfaces listed in the shipped-detectors page are
+  supported.
+
 ## 0.1.3 (2026-11-11)
 
 - tallymap 0.6.0, the final release (rc1 plus four fixes in its CPU backend and process spawning), installed from

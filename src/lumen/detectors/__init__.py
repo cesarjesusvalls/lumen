@@ -1,4 +1,4 @@
-"""The public detectors: recipes for the WCSim detectors (SK, WCTE, ANNIE) and the LArSoft ones (SBND, MicroBooNE).
+"""The public detectors: the WCSim ones (SK, WCTE, ANNIE), the LArSoft ones (SBND, MicroBooNE), nexus's NEXT-100.
 
 Each is registered in ``lumen.plugins.detectors`` with the dataset ids of its sources under ``LUMEN_DATA``.
 """
@@ -13,7 +13,7 @@ def register_builtins():
     if _DONE:
         return
     _DONE.append(True)
-    from lumen.detectors import larsoft, wcsim
+    from lumen.detectors import larsoft, nexus, wcsim
 
     for name, recipe, gdml, inputs in (
         ("sk", wcsim.SK, "gdml/sk.gdml", {}),
@@ -22,5 +22,6 @@ def register_builtins():
          {"wcsim_source": "wcsim/annie_e88314b", "wcsim_tuning": "wcsim/annie_tuning_parameters.mac"}),
         ("sbnd", larsoft.SBND, "gdml/sbnd_v02_00_full_simulation.gdml", {"pds_mapping": "gdml/sbnd_pds_mapping.json"}),
         ("microboone", larsoft.MICROBOONE, "gdml/microboone.gdml", {}),
+        ("next100", nexus.NEXT100, "gdml/next100.gdml", {}),
     ):  # fmt: skip
         plugins.detectors.register(name, plugins.DetectorPackage(name, recipe, gdml, inputs))

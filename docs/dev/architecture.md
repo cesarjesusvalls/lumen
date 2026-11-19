@@ -387,6 +387,7 @@ model maps each `opticalsurface` (type, model, finish) to one of them.
 | PAINTED, PAINTED_T | polishedfrontpainted / groundfrontpainted (mirror or Lambert after the cut) | SK, WCTE, ANNIE black sheet; SBND foil |
 | SPECULAR_METAL | dielectric_metal polished | WCTE reflector, absorber |
 | UNIFIED_METAL, DIELECTRIC_METAL | dielectric_metal unified ground (spike, lobe facet path, backscatter, Lambert) | ANNIE holders and liner |
+| UNIFIED_METAL_FLAT, DIELECTRIC_METAL_FLAT | dielectric_metal unified ground, sigma_alpha 0 (the lobe a mirror about the normal; decision 21) | NEXT-100 meshes and copper plate |
 | GLISUR_METAL, GLISUR_METAL_EFF | dielectric_metal glisur ground (facet path) | SBND steel |
 | REFLECTOR, SENSOR, PHOTOCATHODE, COUNTING | LArSoft reflector; detecting reflector; complex-index cathode; counting sensor | MicroBooNE, SBND |
 | coated | a WLS film over a backing (Geometry and the Geant4 rules) | SBND TPB |
@@ -405,7 +406,7 @@ the after-tracking PMT model.
 | absorption | G4OpAbsorption, ABSLENGTH | a weight, never an event |
 | Rayleigh | G4OpRayleigh, RAYLEIGH; Water's automatic table when RAYLEIGH is absent | polarised |
 | Mie | G4OpMieHG: MIEHG (length table), MIEHG_FORWARD, MIEHG_BACKWARD, MIEHG_FORWARD_RATIO | below |
-| WLS | G4OpWLS: WLSABSLENGTH, WLSCOMPONENT, WLSTIMECONSTANT | bulk `WLSMEANNUMBERPHOTONS` and WLS2 refused |
+| WLS | G4OpWLS: WLSABSLENGTH, WLSCOMPONENT, WLSMEANNUMBERPHOTONS (the weight), WLSTIMECONSTANT (delay: "delta", Geant4's default, or "exponential", the material's `wls_time_profile`; decision 20) | WLS2 refused |
 
 Channels are drawn in a fixed order (Rayleigh, Mie, WLS); a detector without MIEHG gets no Mie channel and is
 bitwise unchanged.
