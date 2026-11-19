@@ -32,6 +32,9 @@ from lumen.viewer.mesh import Tessellator
 
 SCHEMA = "lumen-view/1"
 MAX_INSTANCES = 3_000_000  # placed copies drawn at most; deeper copies past it are left out, and reported
+# The axis drawn vertical: a GDML file does not say. z (WCSim's tanks; LUCiD's convention) unless a registered
+# detector's program puts another up: nexus puts y up (NEXT's pedestal is at -y), the TPC axis along z.
+UP = {"next100": "y"}
 SCINT_PREFIXES = ("SCINTILLATION", "FAST", "SLOW", "YIELDRATIO", "RESOLUTIONSCALE", "PROTON", "DEUTERON", "TRITON",
                   "ALPHA", "ION", "ELECTRON")  # fmt: skip
 LENGTH_KEYS = importer.LENGTH_KEYS | {"MIEHG"}
@@ -502,10 +505,11 @@ def _group_of(sset, lv):
     return next((g.name for g in sset.groups if g.selects(lv)), None)
 
 
-def build(source, detector=None, max_instances=MAX_INSTANCES, recipe=None) -> View:
+def build(source, detector=None, max_instances=MAX_INSTANCES, recipe=None, up=None) -> View:
     """Return the scene (``View``) of a GDML file, or of a registered detector by name (see the module docstring).
 
-    ``detector`` reads the GDML with a registered detector's recipe, ``recipe`` (``FILE.py:NAME``) with your own.
+    ``detector`` reads the GDML with a registered detector's recipe, ``recipe`` (``FILE.py:NAME``) with your own;
+    ``up`` (x, y or z) is the axis the page first draws vertical (``UP``, else z).
     """
     t0 = time.time()
     errors: list = []
@@ -534,6 +538,7 @@ def build(source, detector=None, max_instances=MAX_INSTANCES, recipe=None) -> Vi
     payload["meta"] = _meta(df, path, name, recipe, lam, dict(inst=inst, seconds=time.time() - t0))
     payload["meta"]["detector_volume"] = det_lv
     payload["meta"]["detector_guessed"] = recipe is None and det_lv is not None
+    payload["meta"]["up"] = up or UP.get(detector or name, "z")
     payload["report"] = list(df.report)
     payload["notes"] = notes
     payload["errors"] = [dict(stage=s, text=t) for s, t in errors]

@@ -102,7 +102,7 @@ def main(a) -> int:
         from lumen.viewer.scene import MAX_INSTANCES, build
 
         sys.stderr.write(f"[lumen view] reading {a.source} as lumen reads it ...\n")
-        view = build(a.source, a.detector, a.max_instances or MAX_INSTANCES, recipe=a.recipe)
+        view = build(a.source, a.detector, a.max_instances or MAX_INSTANCES, recipe=a.recipe, up=getattr(a, "up", None))
         for stage, text in view.errors:
             sys.stderr.write(f"[lumen view] {stage}: {text}\n")
         meta = view.payload.get("meta", {})

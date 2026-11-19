@@ -34,6 +34,10 @@ let lvGids = [];              // per LV: Int32Array of its instance ids
 let lvObjects = [];           // per LV: {mesh: InstancedMesh|null, geom, mat, color, transparent}
 let geoms = [];               // per mesh index: BufferGeometry
 let renderer, scene, camera, controls, light;
+let axScene = null, axCam = null;  // the axis triad, drawn in a corner with the camera's orientation
+const AXES = { x: [1, 0, 0], y: [0, 1, 0], z: [0, 0, 1] };
+const ACROSS = { z: ['x', 'y'], x: ['y', 'z'], y: ['z', 'x'] };  // the horizontal axes under each up, right-handed
+let upAxis = 'z';             // drawn vertical: z as LUCiD (and WCSim's tanks); the scene's meta.up may say otherwise
 let clipPlane = new THREE.Plane(new THREE.Vector3(1, 0, 0), 0);
 let clipAxis = 'off', clipFlip = false;
 let sceneBox = new THREE.Box3(), envBox = new THREE.Box3();  // what is drawn, and the detector volume itself
@@ -155,9 +159,9 @@ function initThree() {
   host.appendChild(renderer.domElement);
   scene = new THREE.Scene();
   camera = new THREE.PerspectiveCamera(40, 1, 1e-4, 1e5);
-  camera.up.set(0, 1, 0);
-  controls = new THREE.OrbitControls(camera, renderer.domElement);
-  controls.enableDamping = true; controls.dampingFactor = 0.12; controls.screenSpacePanning = true;
+  camera.up.set(...AXES[upAxis]);
+  makeControls();
+  initAxes();
   scene.add(new THREE.HemisphereLight(0xffffff, 0x303040, 0.75));
   light = new THREE.DirectionalLight(0xffffff, 0.65); camera.add(light); light.position.set(0.3, 0.6, 1);
   scene.add(camera);
@@ -171,8 +175,43 @@ function initThree() {
   });
   (function loop() {
     requestAnimationFrame(loop);
-    if (controls.update() || dirty) { renderer.render(scene, camera); dirty = false; }
+    if (controls.update() || dirty) { renderer.render(scene, camera); renderAxes(); dirty = false; }
   })();
+}
+// OrbitControls (r128) fixes the up axis it orbits around when it is made: a new up needs new controls.
+function makeControls() {
+  if (controls) controls.dispose();
+  controls = new THREE.OrbitControls(camera, renderer.domElement);
+  controls.enableDamping = true; controls.dampingFactor = 0.12; controls.screenSpacePanning = true;
+}
+function setUp(v) {
+  upAxis = v; setActive('upGrp', v); camera.up.set(...AXES[v]); makeControls(); fitCamera();
+}
+function axisLabel(text, color) {
+  const c = document.createElement('canvas'); c.width = c.height = 64;
+  const g = c.getContext('2d'); g.fillStyle = color; g.font = 'bold 44px monospace';
+  g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(text, 32, 34);
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), depthTest: false }));
+  s.scale.set(0.5, 0.5, 1); return s;
+}
+function initAxes() {
+  axScene = new THREE.Scene();
+  axCam = new THREE.PerspectiveCamera(30, 1, 0.1, 20);
+  const colors = { x: '#ef5350', y: '#66bb6a', z: '#42a5f5' };
+  for (const [k, v] of Object.entries(AXES)) {
+    const d = new THREE.Vector3(...v);
+    axScene.add(new THREE.ArrowHelper(d, new THREE.Vector3(), 1, new THREE.Color(colors[k]).getHex(), 0.28, 0.14));
+    const s = axisLabel(k.toUpperCase(), colors[k]); s.position.copy(d).multiplyScalar(1.35); axScene.add(s);
+  }
+}
+function renderAxes() {
+  const host = $('panel3d'), w = host.clientWidth, n = 96, x = w - n - 10, y = 26;
+  axCam.quaternion.copy(camera.quaternion);
+  axCam.position.set(0, 0, 6.5).applyQuaternion(camera.quaternion);
+  renderer.autoClear = false; renderer.clearDepth();
+  renderer.setScissorTest(true); renderer.setScissor(x, y, n, n); renderer.setViewport(x, y, n, n);
+  renderer.render(axScene, axCam);
+  renderer.setScissorTest(false); renderer.setViewport(0, 0, w, host.clientHeight); renderer.autoClear = true;
 }
 function resize() {
   const host = $('panel3d'); const w = host.clientWidth, h = host.clientHeight;
@@ -259,9 +298,15 @@ function refreshMaterials() {
 
 function fitCamera() {
   if (sceneBox.isEmpty()) return;
-  const c = sceneBox.getCenter(new THREE.Vector3()); const size = sceneBox.getSize(new THREE.Vector3()).length();
-  camera.near = size * 1e-5; camera.far = size * 50; camera.updateProjectionMatrix();
-  camera.position.copy(c).add(new THREE.Vector3(0.9, 0.55, 1.0).normalize().multiplyScalar(size * 1.1));
+  // As LUCiD: from outside, across the up axis, 45 degrees round it and about 17 degrees above (a little closer).
+  const c = sceneBox.getCenter(new THREE.Vector3()), ext = sceneBox.getSize(new THREE.Vector3());
+  const [a, b] = ACROSS[upAxis], half = Math.max(ext[a], ext[b], ext[upAxis]) / 2;
+  const dist = half * 3.2, azim = Math.PI * 0.25, elev = 0.3;
+  const dir = new THREE.Vector3(...AXES[a]).multiplyScalar(Math.cos(elev) * Math.cos(azim))
+    .add(new THREE.Vector3(...AXES[b]).multiplyScalar(Math.cos(elev) * Math.sin(azim)))
+    .add(new THREE.Vector3(...AXES[upAxis]).multiplyScalar(Math.sin(elev)));
+  camera.near = ext.length() * 1e-5; camera.far = dist * 50; camera.updateProjectionMatrix();
+  camera.position.copy(c).add(dir.multiplyScalar(dist));
   controls.target.copy(c); controls.update(); dirty = true;
 }
 
@@ -681,6 +726,7 @@ function setActive(id, v) { [...$(id).children].forEach((x) => x.classList.toggl
 function wire() {
   group('colorGrp', (v) => { colorMode = v; refreshMaterials(); renderList(); });
   group('showGrp', (v) => { showMode = v; refreshInstances(); refreshMaterials(); renderList(); });
+  group('upGrp', setUp);
   group('clipGrp', (v) => { clipAxis = v; updateClip(); refreshMaterials(); });
   $('clipPos').addEventListener('input', updateClip);
   $('clipFlip').addEventListener('click', () => { clipFlip = !clipFlip; updateClip(); });
@@ -736,6 +782,7 @@ async function main() {
   $('detName').title = `${S.meta.file}${S.meta.recipe ? ' read with the recipe ' + S.meta.recipe : ' read without a recipe'}`;
   document.title = `${S.meta.name} · lumen viewer`;
   setActive('showGrp', showMode);
+  if (AXES[S.meta.up]) { upAxis = S.meta.up; setActive('upGrp', upAxis); }
   initThree(); wire(); buildObjects(); fitCamera(); renderList();
   const nRef = Object.values(S.materials).filter((m) => m.status === 'refused').length + Object.values(S.surfaces).filter((s) => s.status === 'refused').length;
   setStatus(`${S.meta.counts.instances.toLocaleString()} placed volumes · ${Object.keys(S.materials).length} materials · ${Object.keys(S.surfaces).length} surfaces${nRef ? ` · ${nRef} refused by lumen` : ''}${S.errors.length ? ' · import failed: see REPORT' : ''}`);

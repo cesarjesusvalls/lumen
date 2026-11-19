@@ -50,6 +50,7 @@ def _parser() -> argparse.ArgumentParser:
     w.add_argument("--port", type=int, default=8765, help="the port to serve on (default 8765)")
     w.add_argument("--open", action="store_true", help="open the page in a browser")
     w.add_argument("--max-instances", type=int, help="the most placed copies to draw")
+    w.add_argument("--up", choices=("x", "y", "z"), help="the axis drawn vertical at first (default z; next100: y)")
     return ap
 
 

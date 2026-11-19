@@ -77,6 +77,7 @@ def test_tank_scene_as_lumen_reads_it():
     p = view.payload
     assert view.errors == []
     assert p["meta"]["detector_volume"] == "TankLV" and not p["meta"]["detector_guessed"]
+    assert p["meta"]["up"] == "z"  # drawn vertical unless the detector's program says otherwise
     water = next(m for m in p["materials"].values() if m["short"] == "Water")
     assert water["status"] == "medium" and "absorption" in water["channels"]
     rindex = next(q for q in water["properties"] if q["key"] == "RINDEX")
@@ -90,8 +91,8 @@ def test_tank_scene_as_lumen_reads_it():
 
 
 def test_without_a_recipe_the_detector_is_guessed():
-    p = scene.build(TANK).payload
-    assert p["meta"]["recipe"] is None and p["meta"]["detector_guessed"]
+    p = scene.build(TANK, up="y").payload
+    assert p["meta"]["recipe"] is None and p["meta"]["detector_guessed"] and p["meta"]["up"] == "y"
     assert p["meta"]["detector_volume"] == "TankLV"  # the water: the largest volume of a transparent material
     assert p["sensor_groups"] == []
 
@@ -127,6 +128,6 @@ def test_server_sends_the_page_and_the_gzipped_scene():
 def test_cli_parses_view():
     from lumen.cli import _parser
 
-    a = _parser().parse_args(["view", "sk", "--port", "9000", "--open"])
-    assert (a.command, a.source, a.port, a.open) == ("view", "sk", 9000, True)
+    a = _parser().parse_args(["view", "sk", "--port", "9000", "--open", "--up", "y"])
+    assert (a.command, a.source, a.port, a.open, a.up) == ("view", "sk", 9000, True, "y")
     assert sys.modules["lumen.viewer.server"] is server

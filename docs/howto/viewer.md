@@ -41,6 +41,10 @@ lumen view --scene sk.view.json
 | SURFACE | the optical surface on it (its skin, or a border it takes part in), red when lumen refuses that surface |
 | DEPTH | its depth in the volume tree |
 
+UP picks the axis drawn vertical, since a GDML file does not say which one is up. The default is z, as in LUCiD and
+WCSim's tanks; `next100` uses y, as nexus does (its pedestal is at −y). `--up` sets it from the command line. The
+triad in the corner shows the x (red), y (green) and z (blue) axes as you turn the view.
+
 SHOW DETECTOR draws only the detector volume and what it contains, which is what lumen simulates; without a recipe the
 viewer guesses it as lumen's `auto:` rule would (the largest volume of a transparent material) and marks it GUESSED in
 the REPORT tab. CLIP cuts the view along x, y or z (the slider moves the plane, the arrows keep the other side), and
