@@ -7,7 +7,8 @@ The documentation follows the Diátaxis layout:
 - **How-to guides** (a task, start to finish): [installing lumen](howto/install.md), GPU or CPU, the caches and
   their variables; [your own detector](howto/your-own-detector.md), from a GDML file to a calibration and a
   comparison with Geant4; [light sources](howto/sources.md), the sources lumen ships; [the shipped
-  detectors](howto/shipped-detectors.md), SK, WCTE, ANNIE, SBND and MicroBooNE and how to load them; [extending
+  detectors](howto/shipped-detectors.md), SK, WCTE, ANNIE, SBND and MicroBooNE and how to load them; [looking at a
+  GDML file](howto/viewer.md) in the browser, as lumen reads its materials and surfaces; [extending
   lumen](howto/extending.md), your own source, sensor response, medium or surface model, with its parameters as keys.
 - **Reference**: [the API](reference/api.md), every public function and its signature; [PMT value
   sets](reference/value-sets.md), the format of a sensor model's values; [errors](reference/errors.md), every error

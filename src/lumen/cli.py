@@ -6,6 +6,7 @@
     lumen validate overlaps coinc_sib
     lumen validate report DIR [DIR ...] [--out docs/validation/report.md]
     lumen validate list                                                      # the checks every manifest lists
+    lumen view sk [--detector NAME] [--port 8765] [--open] [--out FILE]      # the GDML viewer (lumen.viewer)
 
 A check's name is a manifest entry (``lumen.validate.references``): lumen's own detectors, or any detector package's
 under ``lumen.detectors``, or a manifest given with ``--references``. Records go to ``--out`` (default
@@ -39,6 +40,16 @@ def _parser() -> argparse.ArgumentParser:
     v.add_argument("--shard", help="gradients: I/N, run the families j with j %% N == I (one job each, on many GPUs)")
     v.add_argument("--merge", action="store_true", help="gradients: merge the shards' records into the check's")
     v.add_argument("--g4ref", help="geometry: the g4ref binary (Geant4 10.7.4), or a probe CSV made elsewhere")
+    w = sub.add_parser("view", help="view a GDML file as lumen reads it, in the browser")
+    w.add_argument("source", nargs="?", help="a registered detector (its GDML under LUMEN_DATA) or a GDML file")
+    w.add_argument("--detector", help="read the GDML file with this registered detector's recipe")
+    w.add_argument("--recipe", help="read the GDML file with a recipe of your own: FILE.py:NAME")
+    w.add_argument("--scene", help="serve a scene written earlier with --out instead of building one")
+    w.add_argument("--out", help="write the scene (JSON) to this file and exit")
+    w.add_argument("--host", default="127.0.0.1", help="the address to serve on (default 127.0.0.1)")
+    w.add_argument("--port", type=int, default=8765, help="the port to serve on (default 8765)")
+    w.add_argument("--open", action="store_true", help="open the page in a browser")
+    w.add_argument("--max-instances", type=int, help="the most placed copies to draw")
     return ap
 
 
@@ -98,6 +109,10 @@ def validate(a) -> int:
 def main(argv=None) -> int:
     """Run the ``lumen`` command line."""
     a = _parser().parse_args(argv)
+    if a.command == "view":
+        from lumen.viewer import server
+
+        return server.main(a)
     return validate(a)
 
 

@@ -1,0 +1,8 @@
+# Write WCSim's Super-K geometry (the default SuperK configuration) to GDML
+/run/verbose 0
+/WCSim/WCgeom SuperK
+/WCSim/PMTQEMethod SensitiveDetector_Only
+/WCSim/PMTCollEff on
+/WCSim/PMT/ReplicaPlacement false
+/WCSim/Construct
+/persistency/gdml/write sk.gdml

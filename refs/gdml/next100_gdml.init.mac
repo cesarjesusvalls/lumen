@@ -1,0 +1,14 @@
+## Write nexus's NEXT-100 optical geometry (Next100OpticalGeometry, as in macros/NEXT100_S1_LT.init.mac) to GDML
+/PhysicsList/RegisterPhysics G4EmStandardPhysics_option4
+/PhysicsList/RegisterPhysics G4DecayPhysics
+/PhysicsList/RegisterPhysics G4RadioactiveDecayPhysics
+/PhysicsList/RegisterPhysics G4OpticalPhysics
+/PhysicsList/RegisterPhysics NexusPhysics
+/PhysicsList/RegisterPhysics G4StepLimiterPhysics
+/nexus/RegisterGeometry Next100OpticalGeometry
+/nexus/RegisterGenerator ScintillationGenerator
+/nexus/RegisterPersistencyManager PersistencyManager
+/nexus/RegisterTrackingAction DefaultTrackingAction
+/nexus/RegisterRunAction DefaultRunAction
+/nexus/RegisterMacro @OUT@/next100_gdml.config.mac
+/nexus/RegisterDelayedMacro @OUT@/next100_gdml.write.mac

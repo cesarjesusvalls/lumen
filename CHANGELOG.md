@@ -3,6 +3,17 @@
 Changes a user of lumen can see, newest first. Each entry says what changed, what an old file, key or script does
 now, and what to do.
 
+## Unreleased
+
+Added:
+
+- `lumen view`: a browser viewer of a GDML file as lumen reads it (`lumen.viewer`, the `view` extra for exact
+  booleans). It draws every placed volume, coloured by how lumen reads its material or by its optical surface, and
+  shows for each material and surface lumen's status (a medium and its channels, opaque, a sensor, or refused with
+  lumen's message), which lumen parameter each property feeds, and a plot of any table against wavelength. It reads a
+  registered detector with its recipe (`lumen view sk`), any GDML without one, or with a recipe of your own
+  (`--recipe FILE.py:NAME`). See `docs/howto/viewer.md`.
+
 ## 0.1.3 (2026-11-11)
 
 - tallymap 0.6.0, the final release (rc1 plus four fixes in its CPU backend and process spawning), installed from

@@ -5,6 +5,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import doc_pages
 
@@ -22,3 +24,9 @@ def test_value_sets_page_runs(tmp_path, monkeypatch):
     for i, code in enumerate(doc_pages.blocks("docs/reference/value-sets.md")):
         exec(compile(code, f"value-sets.md[{i}]", "exec"), {})
     assert (tmp_path / "my_pmt.json").exists()
+
+
+def test_viewer_page_runs(tmp_path, monkeypatch):
+    pytest.importorskip("manifold3d")
+    ns = doc_pages.run("docs/howto/viewer.md", tmp_path, monkeypatch)
+    assert ns["water"]["status"] == "medium"

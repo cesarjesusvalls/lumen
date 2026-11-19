@@ -93,6 +93,7 @@ src/lumen/
 ├── sources/                   point, cherenkov, scintillation, steps, arrays, function (source functions)
 ├── readout/, sensors/         grid, detection, waveform, hits, events, custom; the PMT model, components, value sets
 ├── detectors/                 wcsim, larsoft, their optics tables and the reference manifest (data)
+├── viewer/                    lumen view: scene (a GDML as lumen reads it), mesh (display meshes), server, static/
 └── validate/                  oracle, geometry, overlaps, charge, gradients, check, photons, references, toys, stats,
                                records, report
 ```

@@ -1,0 +1,33 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 594af90..53d44cf 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -18,7 +18,7 @@ set(CMAKE_INSTALL_RPATH "${CMAKE_INSTALL_PREFIX}/lib")
+ set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
+ 
+ # Find dependencies
+-find_package(Geant4 REQUIRED ui_all vis_all)
++find_package(Geant4 REQUIRED ui_all vis_all gdml)
+ find_package(GSL REQUIRED)
+ find_package(HDF5 REQUIRED)
+ 
+diff --git a/source/nexus.cc b/source/nexus.cc
+index dd423ae..ed0af03 100644
+--- a/source/nexus.cc
++++ b/source/nexus.cc
+@@ -14,6 +14,7 @@
+ #include <G4UIExecutive.hh>
+ #include <G4VisExecutive.hh>
+ #include <G4SteppingVerbose.hh>
++#include <G4GDMLParser.hh>  // lumen GDML export: enables /persistency/gdml/write
+ 
+ #include <getopt.h>
+ 
+@@ -120,6 +121,7 @@ G4int main(int argc, char** argv)
+     G4StateManager::GetStateManager()->SetExceptionHandler(new NexusExceptionHandler());
+   }
+ 
++  G4GDMLParser gdml_parser;  // lumen GDML export: its messenger defines /persistency/gdml/*
+   NexusApp* app = new NexusApp(macro_filename);
+   app->Initialize();
+ 

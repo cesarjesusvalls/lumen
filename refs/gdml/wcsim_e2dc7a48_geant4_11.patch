@@ -1,0 +1,1087 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 838847c..80fe7eb 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -108,7 +108,7 @@ if (NOT ${WCSim_WCSimRoot_only}) # only looking for G4 if WCSim_WCSimRoot_only i
+     # to build a batch mode only executable
+     option(WITH_GEANT4_UIVIS "Build example with Geant4 UI and Vis drivers" ON)
+     if(WITH_GEANT4_UIVIS)
+-        find_package(Geant4 REQUIRED ui_all vis_all)
++        find_package(Geant4 REQUIRED ui_all vis_all gdml)
+     else()
+         find_package(Geant4 REQUIRED)
+     endif()
+diff --git a/WCSim.cc b/WCSim.cc
+index 9251058..b98140f 100644
+--- a/WCSim.cc
++++ b/WCSim.cc
+@@ -2,6 +2,24 @@
+ #include "G4ios.hh"
+ #include "G4RunManager.hh"
+ #include "G4UImanager.hh"
++#include "G4GDMLParser.hh"  // lumen GDML export: enables /persistency/gdml/write
++#include "G4ExceptionHandler.hh"
++#include "G4StateManager.hh"
++
++namespace {
++  // lumen GDML export: Geant4 11 refuses a property table whose energies descend (mat215), which Geant4 10
++  // accepted; WCSim builds a few for materials other detectors use. Report each one and go on.
++  class LenientMaterialsHandler : public G4ExceptionHandler {
++  public:
++    G4bool Notify(const char* origin, const char* code, G4ExceptionSeverity sev, const char* desc) override {
++      if (G4String(code) == "mat215") {
++        G4cerr << "lumen GDML export: not fatal here: " << code << " " << desc << G4endl;
++        return false;
++      }
++      return G4ExceptionHandler::Notify(origin, code, sev, desc);
++    }
++  };
++}
+ #include "G4UIterminal.hh"
+ #include "G4UItcsh.hh"
+ #include "WCSimDetectorConstruction.hh"
+@@ -68,6 +86,8 @@ int main(int argc,char** argv)
+ 
+   // Construct the default run manager
+   G4RunManager* runManager = new G4RunManager;
++  G4GDMLParser gdml_parser;  // lumen GDML export: its messenger defines /persistency/gdml/*
++  G4StateManager::GetStateManager()->SetExceptionHandler(new LenientMaterialsHandler);
+ 
+   // get the pointer to the UI manager
+   G4UImanager* UI = G4UImanager::GetUIpointer();
+diff --git a/include/GeometryScan.hh b/include/GeometryScan.hh
+index e0ee630..1b0149c 100644
+--- a/include/GeometryScan.hh
++++ b/include/GeometryScan.hh
+@@ -8,7 +8,7 @@
+ 
+ #include "G4Navigator.hh"
+ #include "G4TransportationManager.hh"
+-#include "G4SIunits.hh"
++#include "G4SystemOfUnits.hh"  // lumen GDML export: G4SIunits.hh is gone in Geant4 11
+ 
+ /// @brief GeometryScanning Utility Namespace
+ namespace GeometryScan {
+diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
+index 5ffd9e6..db07180 100644
+--- a/src/CMakeLists.txt
++++ b/src/CMakeLists.txt
+@@ -5,6 +5,7 @@
+ # Core library
+ #
+ file(GLOB sources ${PROJECT_SOURCE_DIR}/src/*.cc)
++list(FILTER sources EXCLUDE REGEX "GdNeutronHP")  # lumen GDML export: Geant4 11 has no G4NeutronHP* final states
+ file(GLOB headers
+         ${PROJECT_SOURCE_DIR}/include/*.hh
+         ${PROJECT_SOURCE_DIR}/include/*.h
+diff --git a/src/WCSimConstructBeamPipe.cc b/src/WCSimConstructBeamPipe.cc
+index 4faa218..d88a1c7 100644
+--- a/src/WCSimConstructBeamPipe.cc
++++ b/src/WCSimConstructBeamPipe.cc
+@@ -183,7 +183,7 @@ G4LogicalVolume* WCSimDetectorConstruction::ConstructBeamPipe()
+       G4LogicalVolume* logicAssembly = new G4LogicalVolume(solidAssembly, 
+                                                            airMaterial, 
+                                                            "T5_AssemblyLogic" + suffix);
+-      logicAssembly->SetVisAttributes(G4VisAttributes::Invisible); // Hide container
++      logicAssembly->SetVisAttributes(G4VisAttributes::GetInvisible()); // Hide container
+ 
+       // 2. Create Component Solids (All share X/Y dimensions of the container)
+       G4Box* sVinyl = new G4Box("T5_Vinyl"+suffix, halfLenX, halfHgtY, t_vinyl/2.0);
+diff --git a/src/WCSimConstructCylinder.cc b/src/WCSimConstructCylinder.cc
+index 4938ec3..8960a2b 100644
+--- a/src/WCSimConstructCylinder.cc
++++ b/src/WCSimConstructCylinder.cc
+@@ -223,7 +223,7 @@ G4LogicalVolume* WCSimDetectorConstruction::ConstructCylinder()
+   G4VisAttributes* showColor = new G4VisAttributes(G4Colour(0.0,1.0,0.0));
+   logicWC->SetVisAttributes(showColor);
+ 
+-  logicWC->SetVisAttributes(G4VisAttributes::Invisible); //amb79
++  logicWC->SetVisAttributes(G4VisAttributes::GetInvisible()); //amb79
+   
+   //-----------------------------------------------------
+   // everything else is contained in this water tubs
+@@ -286,7 +286,7 @@ G4LogicalVolume* WCSimDetectorConstruction::ConstructCylinder()
+     G4VisAttributes *showTyvekCave = new G4VisAttributes(green);
+     showTyvekCave->SetForceWireframe(true);// This line is used to give definition to the rings in OGLSX Visualizer
+     logicCaveTyvek->SetVisAttributes(showTyvekCave);
+-    //logicCaveTyvek->SetVisAttributes(G4VisAttributes::Invisible); //amb79
++    //logicCaveTyvek->SetVisAttributes(G4VisAttributes::GetInvisible()); //amb79
+ 
+     //-----------------------------------------------------
+     // Cylinder caps' tyvek
+@@ -311,7 +311,7 @@ G4LogicalVolume* WCSimDetectorConstruction::ConstructCylinder()
+     G4VisAttributes *CapsCaveTyvekVisAtt = new G4VisAttributes(yellow);
+     CapsCaveTyvekVisAtt->SetForceWireframe(true);
+     logicCaveCapsTyvek->SetVisAttributes(CapsCaveTyvekVisAtt);
+-    //logicCaveCapsTyvek->SetVisAttributes(G4VisAttributes::Invisible); //amb79
++    //logicCaveCapsTyvek->SetVisAttributes(G4VisAttributes::GetInvisible()); //amb79
+ 
+     G4ThreeVector CaveTyvekPosition(0., 0., WCLength / 2);
+ 
+@@ -345,11 +345,11 @@ G4LogicalVolume* WCSimDetectorConstruction::ConstructCylinder()
+ 
+   // This volume needs to made invisible to view the blacksheet and PMTs with RayTracer
+   if (Vis_Choice == "RayTracer")
+-	{logicWCBarrel->SetVisAttributes(G4VisAttributes::Invisible);} 
++	{logicWCBarrel->SetVisAttributes(G4VisAttributes::GetInvisible());} 
+ 
+   else
+ 	{//{if(!debugMode)
+-	  G4VisAttributes* tmpVisAtt = new G4VisAttributes(G4VisAttributes::Invisible);
++	  G4VisAttributes* tmpVisAtt = new G4VisAttributes(G4VisAttributes::GetInvisible());
+ 	  tmpVisAtt->SetForceWireframe(true);// This line is used to give definition to the rings in OGLSX Visualizer
+ 	  logicWCBarrel->SetVisAttributes(tmpVisAtt);
+ 	}
+@@ -423,7 +423,7 @@ G4LogicalVolume* WCSimDetectorConstruction::ConstructCylinder()
+ 					  0,
+ 					  checkOverlaps);
+   if(!debugMode)
+-	logicWCBarrelAnnulus->SetVisAttributes(G4VisAttributes::Invisible); //amb79
++	logicWCBarrelAnnulus->SetVisAttributes(G4VisAttributes::GetInvisible()); //amb79
+ 
+   //-----------------------------------------------------
+   // Subdivide the BarrelAnnulus into rings
+@@ -459,7 +459,7 @@ G4LogicalVolume* WCSimDetectorConstruction::ConstructCylinder()
+ 	  tmpVisAtt->SetForceWireframe(true);// This line is used to give definition to the rings in OGLSX Visualizer
+ 	  logicWCBarrelRing->SetVisAttributes(tmpVisAtt);
+ 	  //If you want the rings on the Annulus to show in OGLSX, then comment out the line below.
+-	  logicWCBarrelRing->SetVisAttributes(G4VisAttributes::Invisible);
++	  logicWCBarrelRing->SetVisAttributes(G4VisAttributes::GetInvisible());
+ 	}
+   else {
+ 	G4VisAttributes* tmpVisAtt = new G4VisAttributes(G4Colour(0,0.5,1.));
+@@ -501,7 +501,7 @@ G4LogicalVolume* WCSimDetectorConstruction::ConstructCylinder()
+ 	  tmpVisAtt->SetForceSolid(true);// This line is used to give definition to the cells in OGLSX Visualizer
+ 	  logicWCBarrelCell->SetVisAttributes(tmpVisAtt); 
+ 	  //If you want the columns on the Annulus to show in OGLSX, then comment out the line below.
+-	  logicWCBarrelCell->SetVisAttributes(G4VisAttributes::Invisible);
++	  logicWCBarrelCell->SetVisAttributes(G4VisAttributes::GetInvisible());
+ 	}
+   else {
+   	G4VisAttributes* tmpVisAtt = new G4VisAttributes(G4Colour(1.,0.5,0.5));
+@@ -580,14 +580,14 @@ G4LogicalVolume* WCSimDetectorConstruction::ConstructCylinder()
+ 	if(!debugMode)
+ 	  logicWCBarrelCellBlackSheet->SetVisAttributes(WCBarrelBlackSheetCellVisAtt);
+ 	else
+-	  logicWCBarrelCellBlackSheet->SetVisAttributes(G4VisAttributes::Invisible);}
++	  logicWCBarrelCellBlackSheet->SetVisAttributes(G4VisAttributes::GetInvisible());}
+ 
+   else {
+ 
+ 	G4VisAttributes* WCBarrelBlackSheetCellVisAtt 
+       = new G4VisAttributes(G4Colour(0.2,0.9,0.2));
+ 	if(!debugMode)
+-	  logicWCBarrelCellBlackSheet->SetVisAttributes(G4VisAttributes::Invisible);
++	  logicWCBarrelCellBlackSheet->SetVisAttributes(G4VisAttributes::GetInvisible());
+ 	else
+ 	  logicWCBarrelCellBlackSheet->SetVisAttributes(WCBarrelBlackSheetCellVisAtt);}
+ 
+@@ -653,7 +653,7 @@ G4LogicalVolume* WCSimDetectorConstruction::ConstructCylinder()
+ 
+  
+ 
+-    logicWCExtraTower->SetVisAttributes(G4VisAttributes::Invisible);
++    logicWCExtraTower->SetVisAttributes(G4VisAttributes::GetInvisible());
+ 	//-------------------------------------------
+ 	// subdivide the extra tower into cells  
+ 	//------------------------------------------
+@@ -683,7 +683,7 @@ G4LogicalVolume* WCSimDetectorConstruction::ConstructCylinder()
+     G4VisAttributes* tmpVisAtt = new G4VisAttributes(G4Colour(1.,0.5,0.5));
+   	tmpVisAtt->SetForceSolid(true);// This line is used to give definition to the cells in OGLSX Visualizer
+   	//logicWCExtraTowerCell->SetVisAttributes(tmpVisAtt); 
+-	logicWCExtraTowerCell->SetVisAttributes(G4VisAttributes::Invisible);
++	logicWCExtraTowerCell->SetVisAttributes(G4VisAttributes::GetInvisible());
+ 	//TF vis.
+ 
+     //---------------------------------------------
+@@ -739,7 +739,7 @@ G4LogicalVolume* WCSimDetectorConstruction::ConstructCylinder()
+ 		= new G4VisAttributes(G4Colour(0.2,0.9,0.2)); // green color
+ 
+ 	  if(!debugMode)
+-		{logicWCTowerBlackSheet->SetVisAttributes(G4VisAttributes::Invisible);}
++		{logicWCTowerBlackSheet->SetVisAttributes(G4VisAttributes::GetInvisible());}
+ 	  else
+ 		{logicWCTowerBlackSheet->SetVisAttributes(WCBarrelBlackSheetCellVisAtt);}}
+   
+@@ -761,7 +761,7 @@ G4LogicalVolume* WCSimDetectorConstruction::ConstructCylinder()
+ 		= new G4VisAttributes(G4Colour(0.2,0.9,0.2)); // green color
+ 
+ 	  if(!debugMode)
+-		{logicWCTowerBlackSheet->SetVisAttributes(G4VisAttributes::Invisible);}
++		{logicWCTowerBlackSheet->SetVisAttributes(G4VisAttributes::GetInvisible());}
+ 	  else
+ 		{logicWCTowerBlackSheet->SetVisAttributes(WCBarrelBlackSheetCellVisAtt);}}
+   
+@@ -926,7 +926,7 @@ G4LogicalVolume* WCSimDetectorConstruction::ConstructCylinder()
+ 
+   /*These lines of code will give color and volume to the PMTs if it hasn't been set in WCSimConstructPMT.cc.
+ 	I recommend setting them in WCSimConstructPMT.cc. 
+-	If used here, uncomment the SetVisAttributes(WClogic) line, and comment out the SetVisAttributes(G4VisAttributes::Invisible) line.*/
++	If used here, uncomment the SetVisAttributes(WClogic) line, and comment out the SetVisAttributes(G4VisAttributes::GetInvisible()) line.*/
+   
+   G4VisAttributes* WClogic 
+ 	= new G4VisAttributes(G4Colour(0.4,0.0,0.8));
+@@ -934,7 +934,7 @@ G4LogicalVolume* WCSimDetectorConstruction::ConstructCylinder()
+   WClogic->SetForceAuxEdgeVisible(true);
+ 
+   //logicWCPMT->SetVisAttributes(WClogic);
+-  //logicWCPMT->SetVisAttributes(G4VisAttributes::Invisible);
++  //logicWCPMT->SetVisAttributes(G4VisAttributes::GetInvisible());
+ 
+   //jl145------------------------------------------------
+   // Add top veto PMTs
+@@ -1244,8 +1244,8 @@ G4LogicalVolume* WCSimDetectorConstruction::ConstructCylinder()
+ 	  new G4VisAttributes(yellow);
+     WCCapsODTyvekCellVisAtt->SetForceWireframe(true);
+ 
+-    logicWCODTopCapTyvek->SetVisAttributes(G4VisAttributes::Invisible);
+-	logicWCODBotCapTyvek->SetVisAttributes(G4VisAttributes::Invisible);
++    logicWCODTopCapTyvek->SetVisAttributes(G4VisAttributes::GetInvisible());
++	logicWCODBotCapTyvek->SetVisAttributes(G4VisAttributes::GetInvisible());
+     //// Uncomment following for TYVEK visualization
+     logicWCODTopCapTyvek->SetVisAttributes(WCCapsODTyvekCellVisAtt);
+ 	logicWCODBotCapTyvek->SetVisAttributes(WCCapsODTyvekCellVisAtt);
+@@ -1309,7 +1309,7 @@ G4LogicalVolume* WCSimDetectorConstruction::ConstructCylinder()
+     WCBarrelODTyvekCellVisAtt->SetForceWireframe(true);
+     WCBarrelODTyvekCellVisAtt->SetForceAuxEdgeVisible(true); // force auxiliary edges to be shown
+ 
+-    logicWCBarrelCellODTyvek->SetVisAttributes(G4VisAttributes::Invisible);
++    logicWCBarrelCellODTyvek->SetVisAttributes(G4VisAttributes::GetInvisible());
+     //// Uncomment following for TYVEK visualization
+     logicWCBarrelCellODTyvek->SetVisAttributes(WCBarrelODTyvekCellVisAtt);
+ 
+@@ -1435,7 +1435,7 @@ G4LogicalVolume* WCSimDetectorConstruction::ConstructCylinder()
+ 	  new G4LogicalSkinSurface("WaterExtraTySurfaceSide", logicWCTowerODTyvek, OpWaterTyInwallSurface);
+ 
+ 
+-      logicWCTowerODTyvek->SetVisAttributes(G4VisAttributes::Invisible);
++      logicWCTowerODTyvek->SetVisAttributes(G4VisAttributes::GetInvisible());
+       //// Uncomment following for TYVEK visualization
+       logicWCTowerODTyvek->SetVisAttributes(WCBarrelODTyvekCellVisAtt);
+ 
+@@ -1564,11 +1564,11 @@ G4LogicalVolume* WCSimDetectorConstruction::ConstructCylinder()
+   // These lines make the large cap volume invisible to view the caps blacksheets. Need to make invisible for
+   // RayTracer
+   if (Vis_Choice == "RayTracer"){
+-	logicBottomCapAssembly->SetVisAttributes(G4VisAttributes::Invisible);
+-	logicTopCapAssembly->SetVisAttributes(G4VisAttributes::Invisible);
++	logicBottomCapAssembly->SetVisAttributes(G4VisAttributes::GetInvisible());
++	logicTopCapAssembly->SetVisAttributes(G4VisAttributes::GetInvisible());
+   } else {
+-	logicBottomCapAssembly->SetVisAttributes(G4VisAttributes::Invisible);
+-	logicTopCapAssembly->SetVisAttributes(G4VisAttributes::Invisible);
++	logicBottomCapAssembly->SetVisAttributes(G4VisAttributes::GetInvisible());
++	logicTopCapAssembly->SetVisAttributes(G4VisAttributes::GetInvisible());
+   }
+ 
+   //G4VPhysicalVolume* physiTopCapAssembly =
+@@ -1624,7 +1624,7 @@ G4LogicalVolume* WCSimDetectorConstruction::ConstructCaps(G4bool flipz)
+                         caname,
+                         0,0,0);
+ 
+-  G4VisAttributes* tmpVisAtt = new G4VisAttributes(G4VisAttributes::Invisible);
++  G4VisAttributes* tmpVisAtt = new G4VisAttributes(G4VisAttributes::GetInvisible());
+   tmpVisAtt->SetForceWireframe(true);// This line is used to give definition to the rings in OGLSX Visualizer
+   logicCapAssembly->SetVisAttributes(tmpVisAtt);
+ 
+@@ -1679,7 +1679,7 @@ G4LogicalVolume* WCSimDetectorConstruction::ConstructCaps(G4bool flipz)
+     tmpVisAtt = new G4VisAttributes(G4Colour(1.,0.5,0.5));
+   	tmpVisAtt->SetForceSolid(true);// This line is used to give definition to the cells in OGLSX Visualizer
+   	//logicWCBarrelBorderRing->SetVisAttributes(tmpVisAtt); 
+-    logicWCBarrelBorderRing->SetVisAttributes(G4VisAttributes::Invisible); 
++    logicWCBarrelBorderRing->SetVisAttributes(G4VisAttributes::GetInvisible()); 
+ 	//TF vis.
+   }
+ 
+@@ -1749,15 +1749,15 @@ G4LogicalVolume* WCSimDetectorConstruction::ConstructCaps(G4bool flipz)
+ 	  tmpVisAtt = new G4VisAttributes(G4Colour(1.,0.5,0.5));
+ 	  tmpVisAtt->SetForceSolid(true);
+ 	  logicWCBarrelBorderCell->SetVisAttributes(tmpVisAtt);
+-	  logicWCBarrelBorderCell->SetVisAttributes(G4VisAttributes::Invisible);
++	  logicWCBarrelBorderCell->SetVisAttributes(G4VisAttributes::GetInvisible());
+ 	  logicWCBarrelBorderCellBlackSheet->SetVisAttributes(WCBarrelBlackSheetCellVisAtt);
+         }
+ 	else {
+ 	  tmpVisAtt = new G4VisAttributes(G4Colour(1.,0.5,0.5));
+ 	  tmpVisAtt->SetForceWireframe(true);
+ 	  logicWCBarrelBorderCell->SetVisAttributes(tmpVisAtt);
+-	  logicWCBarrelBorderCell->SetVisAttributes(G4VisAttributes::Invisible);
+-	  logicWCBarrelBorderCellBlackSheet->SetVisAttributes(G4VisAttributes::Invisible);
++	  logicWCBarrelBorderCell->SetVisAttributes(G4VisAttributes::GetInvisible());
++	  logicWCBarrelBorderCellBlackSheet->SetVisAttributes(G4VisAttributes::GetInvisible());
+         }
+   }
+   // used for OGLSX
+@@ -1769,8 +1769,8 @@ G4LogicalVolume* WCSimDetectorConstruction::ConstructCaps(G4bool flipz)
+ 	  tmpVisAtt = new G4VisAttributes(G4Colour(1.,0.5,0.5));
+ 	  tmpVisAtt->SetForceSolid(true);
+ 	  logicWCBarrelBorderCell->SetVisAttributes(tmpVisAtt);
+-	  logicWCBarrelBorderCell->SetVisAttributes(G4VisAttributes::Invisible);
+-	  logicWCBarrelBorderCellBlackSheet->SetVisAttributes(G4VisAttributes::Invisible);
++	  logicWCBarrelBorderCell->SetVisAttributes(G4VisAttributes::GetInvisible());
++	  logicWCBarrelBorderCellBlackSheet->SetVisAttributes(G4VisAttributes::GetInvisible());
+ 	}
+ 	else {
+ 	  tmpVisAtt = new G4VisAttributes(G4Colour(1.,0.5,0.5));
+@@ -1849,7 +1849,7 @@ G4LogicalVolume* WCSimDetectorConstruction::ConstructCaps(G4bool flipz)
+     tmpVisAtt = new G4VisAttributes(G4Colour(1.,0.5,0.5));
+   	tmpVisAtt->SetForceSolid(true);// This line is used to give definition to the cells in OGLSX Visualizer
+   	logicWCExtraBorderCell->SetVisAttributes(tmpVisAtt); 
+-    logicWCExtraBorderCell->SetVisAttributes(G4VisAttributes::Invisible);
++    logicWCExtraBorderCell->SetVisAttributes(G4VisAttributes::GetInvisible());
+     //TF vis.
+ 
+ 
+@@ -1988,7 +1988,7 @@ G4LogicalVolume* WCSimDetectorConstruction::ConstructCaps(G4bool flipz)
+ 	  tmpVisAtt = new G4VisAttributes(G4Colour(1,0.5,0.5));
+ 	  tmpVisAtt->SetForceSolid(true);
+ 	  logicWCCap->SetVisAttributes(tmpVisAtt);
+-	  logicWCCap->SetVisAttributes(G4VisAttributes::Invisible);
++	  logicWCCap->SetVisAttributes(G4VisAttributes::GetInvisible());
+ 
+ 	} else{
+ 	
+@@ -2003,7 +2003,7 @@ G4LogicalVolume* WCSimDetectorConstruction::ConstructCaps(G4bool flipz)
+ 	  tmpVisAtt = new G4VisAttributes(G4Colour(1.,0.5,0.5));
+ 	  tmpVisAtt->SetForceSolid(true);// This line is used to give definition to the cells in OGLSX Visualizer
+ 	  //logicWCCap->SetVisAttributes(tmpVisAtt); 
+-	  logicWCCap->SetVisAttributes(G4VisAttributes::Invisible);
++	  logicWCCap->SetVisAttributes(G4VisAttributes::GetInvisible());
+ 	  //TF vis.
+ 
+ 	} else
+@@ -2111,7 +2111,7 @@ G4LogicalVolume* WCSimDetectorConstruction::ConstructCaps(G4bool flipz)
+ 	  = new G4VisAttributes(G4Colour(0.9,0.2,0.2));
+  
+ 	if(!debugMode)
+-	  logicWCCapBlackSheet->SetVisAttributes(G4VisAttributes::Invisible);
++	  logicWCCapBlackSheet->SetVisAttributes(G4VisAttributes::GetInvisible());
+     else
+ 	  logicWCCapBlackSheet->SetVisAttributes(WCCapBlackSheetVisAtt);
+   }//OGLSX
+@@ -2123,7 +2123,7 @@ G4LogicalVolume* WCSimDetectorConstruction::ConstructCaps(G4bool flipz)
+ 	  = new G4VisAttributes(G4Colour(1.0,1.0,0.0));
+ 
+ 	if(!debugMode)
+-	  //logicWCCapBlackSheet->SetVisAttributes(G4VisAttributes::Invisible); //Use this line if you want to make the blacksheet on the caps invisible to view through
++	  //logicWCCapBlackSheet->SetVisAttributes(G4VisAttributes::GetInvisible()); //Use this line if you want to make the blacksheet on the caps invisible to view through
+ 	  logicWCCapBlackSheet->SetVisAttributes(WCCapBlackSheetVisAtt);
+     else
+ 	  logicWCCapBlackSheet->SetVisAttributes(WCCapBlackSheetVisAtt);
+@@ -2373,7 +2373,7 @@ G4LogicalVolume* WCSimDetectorConstruction::ConstructCaps(G4bool flipz)
+     WCBarrelODTyvekCellVisAtt->SetForceWireframe(true);
+     WCBarrelODTyvekCellVisAtt->SetForceAuxEdgeVisible(true); // force auxiliary edges to be shown
+ 
+-    logicWCBarrelBorderCellODTyvek->SetVisAttributes(G4VisAttributes::Invisible);
++    logicWCBarrelBorderCellODTyvek->SetVisAttributes(G4VisAttributes::GetInvisible());
+     //// Uncomment following for TYVEK visualization
+     logicWCBarrelBorderCellODTyvek->SetVisAttributes(WCBarrelODTyvekCellVisAtt);
+ 
+@@ -2458,7 +2458,7 @@ G4LogicalVolume* WCSimDetectorConstruction::ConstructCaps(G4bool flipz)
+                              logicWCODCapTyvek,
+                              OpWaterTyInwallSurface);
+ 
+-	logicWCODCapTyvek->SetVisAttributes(G4VisAttributes::Invisible);
++	logicWCODCapTyvek->SetVisAttributes(G4VisAttributes::GetInvisible());
+     //// Uncomment following for TYVEK visualization
+     logicWCODCapTyvek->SetVisAttributes(WCBarrelODTyvekCellVisAtt);
+ 
+@@ -2528,7 +2528,7 @@ G4LogicalVolume* WCSimDetectorConstruction::ConstructCaps(G4bool flipz)
+                                logicWCExtraBorderCellODTyvek,
+                                OpWaterTyInwallSurface);
+ 
+-      logicWCExtraBorderCellODTyvek->SetVisAttributes(G4VisAttributes::Invisible);
++      logicWCExtraBorderCellODTyvek->SetVisAttributes(G4VisAttributes::GetInvisible());
+       //// Uncomment following for TYVEK visualization
+       logicWCExtraBorderCellODTyvek->SetVisAttributes(WCBarrelODTyvekCellVisAtt);
+ 
+@@ -2790,7 +2790,7 @@ G4LogicalVolume* WCSimDetectorConstruction::ConstructCylinderNoReplica()
+    G4VisAttributes* showColor = new G4VisAttributes(G4Colour(0.0,1.0,0.0));
+    logicWC->SetVisAttributes(showColor);
+ 
+-   logicWC->SetVisAttributes(G4VisAttributes::Invisible); //amb79
++   logicWC->SetVisAttributes(G4VisAttributes::GetInvisible()); //amb79
+   
+   //-----------------------------------------------------
+   // everything else is contained in this water tubs
+@@ -2851,7 +2851,7 @@ G4LogicalVolume* WCSimDetectorConstruction::ConstructCylinderNoReplica()
+     G4VisAttributes *showTyvekCave = new G4VisAttributes(green);
+     showTyvekCave->SetForceWireframe(true);// This line is used to give definition to the rings in OGLSX Visualizer
+     logicCaveTyvek->SetVisAttributes(showTyvekCave);
+-    //logicCaveTyvek->SetVisAttributes(G4VisAttributes::Invisible); //amb79
++    //logicCaveTyvek->SetVisAttributes(G4VisAttributes::GetInvisible()); //amb79
+ 
+     //-----------------------------------------------------
+     // Cylinder caps' tyvek
+@@ -2876,7 +2876,7 @@ G4LogicalVolume* WCSimDetectorConstruction::ConstructCylinderNoReplica()
+     G4VisAttributes *CapsCaveTyvekVisAtt = new G4VisAttributes(yellow);
+     CapsCaveTyvekVisAtt->SetForceWireframe(true);
+     logicCaveCapsTyvek->SetVisAttributes(CapsCaveTyvekVisAtt);
+-    //logicCaveCapsTyvek->SetVisAttributes(G4VisAttributes::Invisible); //amb79
++    //logicCaveCapsTyvek->SetVisAttributes(G4VisAttributes::GetInvisible()); //amb79
+ 
+     G4ThreeVector CaveTyvekPosition(0., 0., WCLength / 2);
+ 
+@@ -2910,11 +2910,11 @@ G4LogicalVolume* WCSimDetectorConstruction::ConstructCylinderNoReplica()
+ 
+   // This volume needs to made invisible to view the blacksheet and PMTs with RayTracer
+   if (Vis_Choice == "RayTracer")
+-   {logicWCBarrel->SetVisAttributes(G4VisAttributes::Invisible);} 
++   {logicWCBarrel->SetVisAttributes(G4VisAttributes::GetInvisible());} 
+ 
+   else
+    {//{if(!debugMode)
+-    G4VisAttributes* tmpVisAtt = new G4VisAttributes(G4VisAttributes::Invisible);
++    G4VisAttributes* tmpVisAtt = new G4VisAttributes(G4VisAttributes::GetInvisible());
+ 	  tmpVisAtt->SetForceWireframe(true);// This line is used to give definition to the rings in OGLSX Visualizer
+ 	  logicWCBarrel->SetVisAttributes(tmpVisAtt);
+    }
+@@ -2967,7 +2967,7 @@ G4LogicalVolume* WCSimDetectorConstruction::ConstructCylinderNoReplica()
+ 	  tmpVisAtt->SetForceWireframe(true);// This line is used to give definition to the rings in OGLSX Visualizer
+ 	  logicWCBarrelAnnulus->SetVisAttributes(tmpVisAtt);
+ 	  //If you want the rings on the Annulus to show in OGLSX, then comment out the line below.
+-	  logicWCBarrelAnnulus->SetVisAttributes(G4VisAttributes::Invisible);
++	  logicWCBarrelAnnulus->SetVisAttributes(G4VisAttributes::GetInvisible());
+   }
+   else {
+     G4VisAttributes* tmpVisAtt = new G4VisAttributes(G4Colour(0,0.5,1.));
+@@ -3073,7 +3073,7 @@ G4LogicalVolume* WCSimDetectorConstruction::ConstructCylinderNoReplica()
+ 			0,
+ 			checkOverlaps);
+ 
+-    logicWCExtraTower->SetVisAttributes(G4VisAttributes::Invisible);
++    logicWCExtraTower->SetVisAttributes(G4VisAttributes::GetInvisible());
+ 
+     //---------------------------------------------
+     // add blacksheet to this cells
+@@ -3269,7 +3269,7 @@ G4LogicalVolume* WCSimDetectorConstruction::ConstructCylinderNoReplica()
+ 
+   /*These lines of code will give color and volume to the PMTs if it hasn't been set in WCSimConstructPMT.cc.
+   I recommend setting them in WCSimConstructPMT.cc. 
+-  If used here, uncomment the SetVisAttributes(WClogic) line, and comment out the SetVisAttributes(G4VisAttributes::Invisible) line.*/
++  If used here, uncomment the SetVisAttributes(WClogic) line, and comment out the SetVisAttributes(G4VisAttributes::GetInvisible()) line.*/
+   
+   G4VisAttributes* WClogic 
+       = new G4VisAttributes(G4Colour(0.4,0.0,0.8));
+@@ -3277,7 +3277,7 @@ G4LogicalVolume* WCSimDetectorConstruction::ConstructCylinderNoReplica()
+ 	WClogic->SetForceAuxEdgeVisible(true);
+ 
+   //logicWCPMT->SetVisAttributes(WClogic);
+-	//logicWCPMT->SetVisAttributes(G4VisAttributes::Invisible);
++	//logicWCPMT->SetVisAttributes(G4VisAttributes::GetInvisible());
+ 
+   //jl145------------------------------------------------
+   // Add top veto PMTs
+@@ -3617,7 +3617,7 @@ G4LogicalVolume* WCSimDetectorConstruction::ConstructCylinderNoReplica()
+     }
+     else
+     {
+-      logicWCBarrelAnnulusBlackSheet->SetVisAttributes(G4VisAttributes::Invisible);
++      logicWCBarrelAnnulusBlackSheet->SetVisAttributes(G4VisAttributes::GetInvisible());
+     }
+   }
+ 
+@@ -3627,7 +3627,7 @@ G4LogicalVolume* WCSimDetectorConstruction::ConstructCylinderNoReplica()
+       = new G4VisAttributes(G4Colour(0.2,0.9,0.2));
+     if(!debugMode)
+     {
+-      logicWCBarrelAnnulusBlackSheet->SetVisAttributes(G4VisAttributes::Invisible);
++      logicWCBarrelAnnulusBlackSheet->SetVisAttributes(G4VisAttributes::GetInvisible());
+     }
+     else
+     {
+@@ -3637,7 +3637,7 @@ G4LogicalVolume* WCSimDetectorConstruction::ConstructCylinderNoReplica()
+ 
+   if(!(WCBarrelRingNPhi*WCPMTperCellHorizontal == WCBarrelNumPMTHorizontal))
+   {
+-    logicWCExtraTower->SetVisAttributes(G4VisAttributes::Invisible);
++    logicWCExtraTower->SetVisAttributes(G4VisAttributes::GetInvisible());
+ 
+     G4Polyhedra* solidWCTowerBlackSheet = new G4Polyhedra("WCExtraTowerBlackSheet",
+ 			   totalAngle-2.*pi+barrelPhiOffset,//+dPhi/2., // phi start
+@@ -3699,7 +3699,7 @@ G4LogicalVolume* WCSimDetectorConstruction::ConstructCylinderNoReplica()
+         = new G4VisAttributes(G4Colour(0.2,0.9,0.2)); // green color
+ 
+       if(!debugMode)
+-        {logicWCTowerBlackSheet->SetVisAttributes(G4VisAttributes::Invisible);}
++        {logicWCTowerBlackSheet->SetVisAttributes(G4VisAttributes::GetInvisible());}
+       else
+         {logicWCTowerBlackSheet->SetVisAttributes(WCBarrelBlackSheetCellVisAtt);}
+     }
+@@ -3840,8 +3840,8 @@ G4LogicalVolume* WCSimDetectorConstruction::ConstructCylinderNoReplica()
+ 	  new G4VisAttributes(yellow);
+     WCCapsODTyvekCellVisAtt->SetForceWireframe(true);
+ 
+-    logicWCODTopCapTyvek->SetVisAttributes(G4VisAttributes::Invisible);
+-	  logicWCODBotCapTyvek->SetVisAttributes(G4VisAttributes::Invisible);
++    logicWCODTopCapTyvek->SetVisAttributes(G4VisAttributes::GetInvisible());
++	  logicWCODBotCapTyvek->SetVisAttributes(G4VisAttributes::GetInvisible());
+     //// Uncomment following for TYVEK visualization
+     logicWCODTopCapTyvek->SetVisAttributes(WCCapsODTyvekCellVisAtt);
+ 	  logicWCODBotCapTyvek->SetVisAttributes(WCCapsODTyvekCellVisAtt);
+@@ -3906,7 +3906,7 @@ G4LogicalVolume* WCSimDetectorConstruction::ConstructCylinderNoReplica()
+     WCBarrelODTyvekCellVisAtt->SetForceWireframe(true);
+     WCBarrelODTyvekCellVisAtt->SetForceAuxEdgeVisible(true); // force auxiliary edges to be shown
+ 
+-    logicWCBarrelODTyvek->SetVisAttributes(G4VisAttributes::Invisible);
++    logicWCBarrelODTyvek->SetVisAttributes(G4VisAttributes::GetInvisible());
+     //// Uncomment following for TYVEK visualization
+     logicWCBarrelODTyvek->SetVisAttributes(WCBarrelODTyvekCellVisAtt);
+ 
+@@ -4098,7 +4098,7 @@ G4LogicalVolume* WCSimDetectorConstruction::ConstructCylinderNoReplica()
+         new G4LogicalSkinSurface("WaterExtraTySurfaceSide", logicWCTowerODTyvek, OpWaterTyInwallSurface);
+ 
+ 
+-        logicWCTowerODTyvek->SetVisAttributes(G4VisAttributes::Invisible);
++        logicWCTowerODTyvek->SetVisAttributes(G4VisAttributes::GetInvisible());
+         //// Uncomment following for TYVEK visualization
+         logicWCTowerODTyvek->SetVisAttributes(WCBarrelODTyvekCellVisAtt);
+ 
+@@ -4274,11 +4274,11 @@ G4LogicalVolume* WCSimDetectorConstruction::ConstructCylinderNoReplica()
+  // These lines make the large cap volume invisible to view the caps blacksheets. Need to make invisible for 
+  // RayTracer
+   if (Vis_Choice == "RayTracer"){
+-    logicBottomCapAssembly->SetVisAttributes(G4VisAttributes::Invisible);
+-    logicTopCapAssembly->SetVisAttributes(G4VisAttributes::Invisible);
++    logicBottomCapAssembly->SetVisAttributes(G4VisAttributes::GetInvisible());
++    logicTopCapAssembly->SetVisAttributes(G4VisAttributes::GetInvisible());
+   } else {
+-    logicBottomCapAssembly->SetVisAttributes(G4VisAttributes::Invisible);
+-    logicTopCapAssembly->SetVisAttributes(G4VisAttributes::Invisible);
++    logicBottomCapAssembly->SetVisAttributes(G4VisAttributes::GetInvisible());
++    logicTopCapAssembly->SetVisAttributes(G4VisAttributes::GetInvisible());
+   }
+ 
+   //G4VPhysicalVolume* physiTopCapAssembly =
+@@ -4337,7 +4337,7 @@ G4LogicalVolume* WCSimDetectorConstruction::ConstructCapsNoReplica(G4bool flipz)
+                         caname,
+                         0,0,0);
+ 
+-  G4VisAttributes* tmpVisAtt = new G4VisAttributes(G4VisAttributes::Invisible);
++  G4VisAttributes* tmpVisAtt = new G4VisAttributes(G4VisAttributes::GetInvisible());
+   tmpVisAtt->SetForceWireframe(true);// This line is used to give definition to the rings in OGLSX Visualizer
+   logicCapAssembly->SetVisAttributes(tmpVisAtt);
+   
+@@ -4909,7 +4909,7 @@ G4LogicalVolume* WCSimDetectorConstruction::ConstructCapsNoReplica(G4bool flipz)
+     }
+     else
+     {
+-      logicWCBarrelBorderBlackSheet->SetVisAttributes(G4VisAttributes::Invisible);
++      logicWCBarrelBorderBlackSheet->SetVisAttributes(G4VisAttributes::GetInvisible());
+     }
+   }
+ 
+@@ -4919,7 +4919,7 @@ G4LogicalVolume* WCSimDetectorConstruction::ConstructCapsNoReplica(G4bool flipz)
+       = new G4VisAttributes(G4Colour(0.2,0.9,0.2));
+     if(!debugMode)
+     {
+-      logicWCBarrelBorderBlackSheet->SetVisAttributes(G4VisAttributes::Invisible);
++      logicWCBarrelBorderBlackSheet->SetVisAttributes(G4VisAttributes::GetInvisible());
+     }
+     else
+     {
+@@ -4982,7 +4982,7 @@ G4LogicalVolume* WCSimDetectorConstruction::ConstructCapsNoReplica(G4bool flipz)
+         = new G4VisAttributes(G4Colour(0.2,0.9,0.2)); // green color
+ 
+       if(!debugMode)
+-        {logicWCExtraBorderBlackSheet->SetVisAttributes(G4VisAttributes::Invisible);}
++        {logicWCExtraBorderBlackSheet->SetVisAttributes(G4VisAttributes::GetInvisible());}
+       else
+         {logicWCExtraBorderBlackSheet->SetVisAttributes(WCBarrelBlackSheetCellVisAtt);}
+     }
+@@ -5016,7 +5016,7 @@ G4LogicalVolume* WCSimDetectorConstruction::ConstructCapsNoReplica(G4bool flipz)
+     = new G4VisAttributes(G4Colour(0.9,0.2,0.2));
+ 
+     if(!debugMode)
+-      logicWCCapBlackSheet->SetVisAttributes(G4VisAttributes::Invisible);
++      logicWCCapBlackSheet->SetVisAttributes(G4VisAttributes::GetInvisible());
+     else
+       logicWCCapBlackSheet->SetVisAttributes(WCCapBlackSheetVisAtt);}
+ 
+@@ -5027,7 +5027,7 @@ G4LogicalVolume* WCSimDetectorConstruction::ConstructCapsNoReplica(G4bool flipz)
+     = new G4VisAttributes(G4Colour(1.0,1.0,0.0));
+ 
+     if(!debugMode)
+-      //logicWCCapBlackSheet->SetVisAttributes(G4VisAttributes::Invisible); //Use this line if you want to make the blacksheet on the caps invisible to view through
++      //logicWCCapBlackSheet->SetVisAttributes(G4VisAttributes::GetInvisible()); //Use this line if you want to make the blacksheet on the caps invisible to view through
+       logicWCCapBlackSheet->SetVisAttributes(WCCapBlackSheetVisAtt);
+     else
+       logicWCCapBlackSheet->SetVisAttributes(WCCapBlackSheetVisAtt);}
+diff --git a/src/WCSimConstructEggShapedHyperK.cc b/src/WCSimConstructEggShapedHyperK.cc
+index 15de243..3c12e49 100644
+--- a/src/WCSimConstructEggShapedHyperK.cc
++++ b/src/WCSimConstructEggShapedHyperK.cc
+@@ -59,7 +59,7 @@ G4LogicalVolume* WCSimDetectorConstruction::ConstructEggShapedHyperK()
+                                     waterTank_Length/2.+blackSheetThickness),
+                                     FindMaterial("G4_AIR"),
+                                     "EggShapedHyperK");
+-  eggShapedHyperKLV->SetVisAttributes(G4VisAttributes::Invisible);
++  eggShapedHyperKLV->SetVisAttributes(G4VisAttributes::GetInvisible());
+ 
+   new G4LogicalSkinSurface("WaterBSSurface",eggShapedHyperKLV,OpWaterBSSurface);
+ 
+@@ -109,7 +109,7 @@ G4LogicalVolume* WCSimDetectorConstruction::ConstructEggShapedHyperK()
+ 
+   waterTankLV 
+     = new G4LogicalVolume(waterTank_union,FindMaterial("G4_WATER"),"Tank");
+-  waterTankLV->SetVisAttributes(G4VisAttributes::Invisible);
++  waterTankLV->SetVisAttributes(G4VisAttributes::GetInvisible());
+ 
+   new G4PVPlacement(0,G4ThreeVector(0,waterTank_Height/4.,0),
+                     waterTankLV,"Tank",eggShapedHyperKLV,false,0,checkOverlaps);
+@@ -405,7 +405,7 @@ G4LogicalVolume* WCSimDetectorConstruction::ConstructRadialPMT(G4bool top,
+                                      -phi/2.,phi),
+                           FindMaterial("G4_WATER"),
+                           "PMTAnnulus");
+-  pmtAnnulusLV->SetVisAttributes(G4VisAttributes::Invisible);
++  pmtAnnulusLV->SetVisAttributes(G4VisAttributes::GetInvisible());
+ 
+   G4LogicalVolume* blackSheetALV = NULL;
+   if (inner) {
+@@ -427,7 +427,7 @@ G4LogicalVolume* WCSimDetectorConstruction::ConstructRadialPMT(G4bool top,
+                                      -phi/2.,phi),
+                           FindMaterial("G4_WATER"),
+                           "PMTRings");
+-  pmtRingLV->SetVisAttributes(G4VisAttributes::Invisible);
++  pmtRingLV->SetVisAttributes(G4VisAttributes::GetInvisible());
+ 
+   G4LogicalVolume* pmtCellLV
+     = new G4LogicalVolume(new G4Tubs("PMTCell",
+@@ -436,7 +436,7 @@ G4LogicalVolume* WCSimDetectorConstruction::ConstructRadialPMT(G4bool top,
+                                      -dphi/2.,dphi),
+                           FindMaterial("G4_WATER"),
+                           "PMTCell");
+-  pmtCellLV->SetVisAttributes(G4VisAttributes::Invisible);
++  pmtCellLV->SetVisAttributes(G4VisAttributes::GetInvisible());
+ 
+ //-----------------------------------------------------------------
+ //
+@@ -515,7 +515,7 @@ G4LogicalVolume* WCSimDetectorConstruction::ConstructEndWallPMT()
+                                     innerPMT_Apitch/2.),
+                           FindMaterial("G4_WATER"),
+                           "PMTCell");
+-  pmtCellLV->SetVisAttributes(G4VisAttributes::Invisible);
++  pmtCellLV->SetVisAttributes(G4VisAttributes::GetInvisible());
+ 
+   G4RotationMatrix* rotm = new G4RotationMatrix();
+   rotm->rotateY(180.*degree);
+@@ -576,7 +576,7 @@ G4LogicalVolume* WCSimDetectorConstruction::ConstructEndWallPMT()
+                                       innerPMT_Apitch/2.),
+                             FindMaterial("G4_WATER"),
+                             "PMTSlab");
+-    pmtSlabLV->SetVisAttributes(G4VisAttributes::Invisible);
++    pmtSlabLV->SetVisAttributes(G4VisAttributes::GetInvisible());
+ 
+     new G4PVReplica("PMTCell",
+                     pmtCellLV,
+@@ -635,7 +635,7 @@ G4LogicalVolume* WCSimDetectorConstruction::ConstructCeilingPMT(G4bool top,
+                                       zlength/2.),
+                             FindMaterial("G4_WATER"),
+                             "PMTSlab");
+-  pmtSlabLV->SetVisAttributes(G4VisAttributes::Invisible);
++  pmtSlabLV->SetVisAttributes(G4VisAttributes::GetInvisible());
+ 
+   G4LogicalVolume* blackSheetYLV = NULL;
+   if (inner) {
+@@ -657,7 +657,7 @@ G4LogicalVolume* WCSimDetectorConstruction::ConstructCeilingPMT(G4bool top,
+                                       pitch/2.),
+                             FindMaterial("G4_WATER"),
+                             "PMTSlab");
+-  pmtSliceLV->SetVisAttributes(G4VisAttributes::Invisible);
++  pmtSliceLV->SetVisAttributes(G4VisAttributes::GetInvisible());
+ 
+   G4LogicalVolume* pmtCellLV
+     = new G4LogicalVolume(new G4Box("PMTCell",
+@@ -666,7 +666,7 @@ G4LogicalVolume* WCSimDetectorConstruction::ConstructCeilingPMT(G4bool top,
+                                     pitch/2.),
+                           FindMaterial("G4_WATER"),
+                           "PMTCell");
+-  pmtCellLV->SetVisAttributes(G4VisAttributes::Invisible);
++  pmtCellLV->SetVisAttributes(G4VisAttributes::GetInvisible());
+ 
+   G4VPhysicalVolume* pmtSlicePV
+     = new G4PVReplica("PMTSlice",
+diff --git a/src/WCSimConstructExSituMultiPMT.cc b/src/WCSimConstructExSituMultiPMT.cc
+index 5d05d34..b8bc26b 100644
+--- a/src/WCSimConstructExSituMultiPMT.cc
++++ b/src/WCSimConstructExSituMultiPMT.cc
+@@ -90,7 +90,7 @@ G4LogicalVolume* WCSimDetectorConstruction::ConstructExSituPMT(G4String PMTName,
+   } else{
+     G4VisAttributes* WCPMTVisAttGrey = new G4VisAttributes(G4Colour(0.2,0.2,0.2));
+     WCPMTVisAttGrey->SetForceSolid(true);
+-    logicWCPMT->SetVisAttributes(G4VisAttributes::Invisible);
++    logicWCPMT->SetVisAttributes(G4VisAttributes::GetInvisible());
+     logicWCPMT->SetVisAttributes(WCPMTVisAttGrey);                   
+   }
+ 
+@@ -253,7 +253,7 @@ G4LogicalVolume* WCSimDetectorConstruction::ConstructExSituPMT(G4String PMTName,
+     G4VisAttributes* WCPMTVisAtt = new G4VisAttributes(G4Colour(0.0,0.0,1.0));
+     WCPMTVisAtt->SetForceSolid(true); // force the object to be visualized with a surface
+     WCPMTVisAtt->SetForceAuxEdgeVisible(true); // force auxiliary edges to be shown
+-    //logicGlassFaceWCPMT->SetVisAttributes(G4VisAttributes::Invisible);
++    //logicGlassFaceWCPMT->SetVisAttributes(G4VisAttributes::GetInvisible());
+ 
+     logicGlassFaceWCPMT->SetVisAttributes(WCPMTVisAtt);
+   } else {
+@@ -264,7 +264,7 @@ G4LogicalVolume* WCSimDetectorConstruction::ConstructExSituPMT(G4String PMTName,
+     //WCPMTVisAtt->SetForceWireframe(true);
+     G4VisAttributes* WCPMTVisAtt = new G4VisAttributes(G4Colour(0.0,1.0,0.0)); //better for seeing geometry
+     WCPMTVisAtt->SetForceSolid(true);
+-    //logicGlassFaceWCPMT->SetVisAttributes(G4VisAttributes::Invisible);
++    //logicGlassFaceWCPMT->SetVisAttributes(G4VisAttributes::GetInvisible());
+     logicGlassFaceWCPMT->SetVisAttributes(WCPMTVisAtt);
+ 
+   }
+@@ -312,7 +312,7 @@ G4LogicalVolume* WCSimDetectorConstruction::ConstructExSituPMT(G4String PMTName,
+     logicInteriorWCPMT->SetVisAttributes(WCPMTVisAtt);
+   } else {
+     // Making the inner portion of the detector invisible for OGLSX visualization
+-    logicInteriorWCPMT->SetVisAttributes(G4VisAttributes::Invisible);
++    logicInteriorWCPMT->SetVisAttributes(G4VisAttributes::GetInvisible());
+   }
+ 
+   //Add Logical Border Surface
+diff --git a/src/WCSimConstructInSituMultiPMT.cc b/src/WCSimConstructInSituMultiPMT.cc
+index 128059c..81736e9 100644
+--- a/src/WCSimConstructInSituMultiPMT.cc
++++ b/src/WCSimConstructInSituMultiPMT.cc
+@@ -91,7 +91,7 @@ G4LogicalVolume* WCSimDetectorConstruction::ConstructInSituPMT(G4String PMTName,
+   } else{
+     G4VisAttributes* WCPMTVisAttGrey = new G4VisAttributes(G4Colour(0.2,0.2,0.2));
+     WCPMTVisAttGrey->SetForceSolid(true);
+-    logicWCPMT->SetVisAttributes(G4VisAttributes::Invisible);
++    logicWCPMT->SetVisAttributes(G4VisAttributes::GetInvisible());
+     logicWCPMT->SetVisAttributes(WCPMTVisAttGrey);                   
+   }
+ 
+@@ -253,7 +253,7 @@ G4LogicalVolume* WCSimDetectorConstruction::ConstructInSituPMT(G4String PMTName,
+     G4VisAttributes* WCPMTVisAtt = new G4VisAttributes(G4Colour(0.0,0.0,1.0));
+     WCPMTVisAtt->SetForceSolid(true); // force the object to be visualized with a surface
+     WCPMTVisAtt->SetForceAuxEdgeVisible(true); // force auxiliary edges to be shown
+-    //logicGlassFaceWCPMT->SetVisAttributes(G4VisAttributes::Invisible);
++    //logicGlassFaceWCPMT->SetVisAttributes(G4VisAttributes::GetInvisible());
+ 
+     logicGlassFaceWCPMT->SetVisAttributes(WCPMTVisAtt);
+   } else {
+@@ -264,7 +264,7 @@ G4LogicalVolume* WCSimDetectorConstruction::ConstructInSituPMT(G4String PMTName,
+     //WCPMTVisAtt->SetForceWireframe(true);
+     G4VisAttributes* WCPMTVisAtt = new G4VisAttributes(G4Colour(0.0,1.0,0.0)); //better for seeing geometry
+     WCPMTVisAtt->SetForceSolid(true);
+-    //logicGlassFaceWCPMT->SetVisAttributes(G4VisAttributes::Invisible);
++    //logicGlassFaceWCPMT->SetVisAttributes(G4VisAttributes::GetInvisible());
+     logicGlassFaceWCPMT->SetVisAttributes(WCPMTVisAtt);
+ 
+   }
+@@ -312,7 +312,7 @@ G4LogicalVolume* WCSimDetectorConstruction::ConstructInSituPMT(G4String PMTName,
+     logicInteriorWCPMT->SetVisAttributes(WCPMTVisAtt);
+   } else {
+     // Making the inner portion of the detector invisible for OGLSX visualization
+-    logicInteriorWCPMT->SetVisAttributes(G4VisAttributes::Invisible);
++    logicInteriorWCPMT->SetVisAttributes(G4VisAttributes::GetInvisible());
+   }
+ 
+   //Add Logical Border Surface
+diff --git a/src/WCSimConstructMaterials.cc b/src/WCSimConstructMaterials.cc
+index 4df5d2a..05a95c5 100644
+--- a/src/WCSimConstructMaterials.cc
++++ b/src/WCSimConstructMaterials.cc
+@@ -1,3 +1,4 @@
++#include <algorithm>  // lumen GDML export: std::reverse
+ #include <WCSimWLSProperties.hh>
+ #include "WCSimDetectorConstruction.hh"
+ #include "WCSimTuningParameters.hh"
+@@ -1835,16 +1836,16 @@ void WCSimDetectorConstruction::ConstructMaterials()
+   G4double BGO_RINDEX[3] = {2.15, 2.15, 2.15};
+   G4double BGO_ABSL[3] = {1.118*cm, 1.118*cm, 1.118*cm};
+ 
+-  BGO_mpt->AddProperty("FASTCOMPONENT", BGO_energy, BGO_SCINT, 3);
+-  BGO_mpt->AddProperty("SLOWCOMPONENT", BGO_energy, BGO_SCINT, 3);
++  BGO_mpt->AddProperty("FASTCOMPONENT", BGO_energy, BGO_SCINT, 3, true);  // lumen GDML export: a user key under Geant4 11
++  BGO_mpt->AddProperty("SLOWCOMPONENT", BGO_energy, BGO_SCINT, 3, true);  // lumen GDML export: a user key under Geant4 11
+   BGO_mpt->AddProperty("RINDEX", BGO_energy, BGO_RINDEX, 3);
+   BGO_mpt->AddProperty("ABSLENGTH", BGO_energy, BGO_ABSL, 3);
+ 
+   BGO_mpt->AddConstProperty("SCINTILLATIONYIELD", 8000./MeV);
+   BGO_mpt->AddConstProperty("RESOLUTIONSCALE", 1.0);
+-  BGO_mpt->AddConstProperty("FASTTIMECONSTANT", 300.*ns);
+-  BGO_mpt->AddConstProperty("SLOWTIMECONSTANT", 300.*ns);
+-  BGO_mpt->AddConstProperty("YIELDRATIO", 1.0);
++  BGO_mpt->AddConstProperty("FASTTIMECONSTANT", 300.*ns, true);  // lumen GDML export: a user key under Geant4 11
++  BGO_mpt->AddConstProperty("SLOWTIMECONSTANT", 300.*ns, true);  // lumen GDML export: a user key under Geant4 11
++  BGO_mpt->AddConstProperty("YIELDRATIO", 1.0, true);  // lumen GDML export: a user key under Geant4 11
+ 
+   BGO->SetMaterialPropertiesTable(BGO_mpt);
+ 
+@@ -1902,6 +1903,10 @@ void WCSimDetectorConstruction::ConstructMaterials()
+    Glass->SetMaterialPropertiesTable(myMPT5);
+ 
+    G4MaterialPropertiesTable *myMPT5wcte = new G4MaterialPropertiesTable();
++   // lumen GDML export: Geant4 11 needs ascending energies; this grid is written descending
++   std::reverse(ENERGY_glasswcte, ENERGY_glasswcte + 45);
++   std::reverse(RINDEX_glasswcte, RINDEX_glasswcte + 45);
++   std::reverse(ABSORPTION_glasswcte, ABSORPTION_glasswcte + 45);
+    myMPT5wcte->AddProperty("RINDEX", ENERGY_glasswcte, RINDEX_glasswcte, 45);
+    myMPT5wcte->AddProperty("ABSLENGTH",ENERGY_glasswcte, ABSORPTION_glasswcte, 45);
+    GlassWCTE->SetMaterialPropertiesTable(myMPT5wcte);
+@@ -1993,7 +1998,7 @@ void WCSimDetectorConstruction::ConstructMaterials()
+         COATEDRINDEXIM[i] = cathodeparaTable[i][2];
+       }
+       myST2->AddProperty("COATEDRINDEX", ENERGY_COATED, COATEDRINDEX, nCathodePara);
+-      myST2->AddProperty("COATEDRINDEXIM", ENERGY_COATED, COATEDRINDEXIM, nCathodePara);
++      myST2->AddProperty("COATEDRINDEXIM", ENERGY_COATED, COATEDRINDEXIM, nCathodePara, true);  // lumen GDML export: a user key under Geant4 11
+       myST2->AddConstProperty("COATEDTHICKNESS", WCSimTuningParams->GetCathodeThickness()*nm);
+       myST2->AddConstProperty("COATEDFRUSTRATEDTRANSMISSION", COATEDFRUSTRATEDTRANSMISSION_glasscath);
+    }
+diff --git a/src/WCSimConstructPMT.cc b/src/WCSimConstructPMT.cc
+index bb1e698..f49d2fc 100644
+--- a/src/WCSimConstructPMT.cc
++++ b/src/WCSimConstructPMT.cc
+@@ -204,7 +204,7 @@ G4LogicalVolume* WCSimDetectorConstruction::ConstructPMT(G4String PMTName, G4Str
+       // Makes the volume containg the PMT invisible for normal visualization
+       G4VisAttributes* WCPMTVisAttGrey = new G4VisAttributes(G4Colour(0.2,0.2,0.2));
+       WCPMTVisAttGrey->SetForceSolid(true);
+-      logicWCPMT->SetVisAttributes(G4VisAttributes::Invisible);
++      logicWCPMT->SetVisAttributes(G4VisAttributes::GetInvisible());
+       logicWCPMT->SetVisAttributes(WCPMTVisAttGrey);                   //TF debug overlaps with this volume
+     }
+   }
+@@ -263,7 +263,7 @@ G4LogicalVolume* WCSimDetectorConstruction::ConstructPMT(G4String PMTName, G4Str
+     logicInteriorWCPMT->SetVisAttributes(WCPMTVisAtt);
+   } else {
+     // Making the inner portion of the detector invisible for OGLSX visualization
+-    logicInteriorWCPMT->SetVisAttributes(G4VisAttributes::Invisible);
++    logicInteriorWCPMT->SetVisAttributes(G4VisAttributes::GetInvisible());
+   }
+ 
+   /////////////////////////////
+@@ -306,7 +306,7 @@ G4LogicalVolume* WCSimDetectorConstruction::ConstructPMT(G4String PMTName, G4Str
+       // used in OGLSX visualizer
+       G4VisAttributes* WCPMTVisAtt = new G4VisAttributes(G4Colour(0.2,0.2,0.2));
+       WCPMTVisAtt->SetForceWireframe(true);
+-      //logicGlassFaceWCPMT->SetVisAttributes(G4VisAttributes::Invisible);
++      //logicGlassFaceWCPMT->SetVisAttributes(G4VisAttributes::GetInvisible());
+       logicGlassFaceWCPMT->SetVisAttributes(WCPMTVisAtt);}
+ 
+   if (Vis_Choice == "RayTracer"){
+@@ -315,7 +315,7 @@ G4LogicalVolume* WCSimDetectorConstruction::ConstructPMT(G4String PMTName, G4Str
+     G4VisAttributes* WCPMTVisAtt = new G4VisAttributes(G4Colour(0.0,0.0,1.0));
+     WCPMTVisAtt->SetForceSolid(true); // force the object to be visualized with a surface
+     WCPMTVisAtt->SetForceAuxEdgeVisible(true); // force auxiliary edges to be shown
+-    //logicGlassFaceWCPMT->SetVisAttributes(G4VisAttributes::Invisible);
++    //logicGlassFaceWCPMT->SetVisAttributes(G4VisAttributes::GetInvisible());
+ 
+     logicGlassFaceWCPMT->SetVisAttributes(WCPMTVisAtt);
+   } else {
+@@ -326,7 +326,7 @@ G4LogicalVolume* WCSimDetectorConstruction::ConstructPMT(G4String PMTName, G4Str
+     //WCPMTVisAtt->SetForceWireframe(true);
+     G4VisAttributes* WCPMTVisAtt = new G4VisAttributes(G4Colour(0.0,1.0,0.0)); //better for seeing geometry
+     WCPMTVisAtt->SetForceSolid(true);
+-    //logicGlassFaceWCPMT->SetVisAttributes(G4VisAttributes::Invisible);
++    //logicGlassFaceWCPMT->SetVisAttributes(G4VisAttributes::GetInvisible());
+     logicGlassFaceWCPMT->SetVisAttributes(WCPMTVisAtt);
+ 
+   }
+@@ -601,7 +601,7 @@ G4LogicalVolume* WCSimDetectorConstruction::ConstructPMT(G4String PMTName, G4Str
+ 
+   else{
+     // Makes the volume containg the PMT invisible for normal visualization
+-    logicWCPMT->SetVisAttributes(G4VisAttributes::Invisible);}
++    logicWCPMT->SetVisAttributes(G4VisAttributes::GetInvisible());}
+ 
+ 
+   //Create PMT Interior
+@@ -644,7 +644,7 @@ G4LogicalVolume* WCSimDetectorConstruction::ConstructPMT(G4String PMTName, G4Str
+ 
+   else {
+     // Making the inner portion of the detector invisible for OGLSX visualization
+-    logicInteriorWCPMT->SetVisAttributes(G4VisAttributes::Invisible);}
++    logicInteriorWCPMT->SetVisAttributes(G4VisAttributes::GetInvisible());}
+ 
+ 
+   //Create PMT Glass Face
+@@ -703,13 +703,13 @@ G4LogicalVolume* WCSimDetectorConstruction::ConstructPMT(G4String PMTName, G4Str
+     if(detectorElement == "OD") WCPMTVisAtt = new G4VisAttributes(G4Colour(1.0, 0.0, 0.0));
+     else WCPMTVisAtt = new G4VisAttributes(G4Colour(0.2,0.2,0.2));
+     WCPMTVisAtt->SetForceWireframe(true);
+-    //logicGlassFaceWCPMT->SetVisAttributes(G4VisAttributes::Invisible);
++    //logicGlassFaceWCPMT->SetVisAttributes(G4VisAttributes::GetInvisible());
+     logicGlassFaceWCPMT->SetVisAttributes(WCPMTVisAtt);
+     G4VisAttributes* WCLCVisAtt = new G4VisAttributes(G4Colour(.3,.3,0.));
+     WCLCVisAtt->SetForceWireframe(true);
+     WCLCVisAtt->SetForceAuxEdgeVisible(true);
+     //WCLCVisAtt->SetForceSolid(true);
+-    //logicLightCone->SetVisAttributes(G4VisAttributes::Invisible);
++    //logicLightCone->SetVisAttributes(G4VisAttributes::GetInvisible());
+     if (logicLightCone!=NULL)
+       logicLightCone->SetVisAttributes(WCLCVisAtt);
+   }
+@@ -720,7 +720,7 @@ G4LogicalVolume* WCSimDetectorConstruction::ConstructPMT(G4String PMTName, G4Str
+     G4VisAttributes* WCPMTVisAtt = new G4VisAttributes(G4Colour(0.0,0.0,1.0));
+     WCPMTVisAtt->SetForceSolid(true); // force the object to be visualized with a surface
+     WCPMTVisAtt->SetForceAuxEdgeVisible(true); // force auxiliary edges to be shown
+-    //logicGlassFaceWCPMT->SetVisAttributes(G4VisAttributes::Invisible);
++    //logicGlassFaceWCPMT->SetVisAttributes(G4VisAttributes::GetInvisible());
+ 
+     logicGlassFaceWCPMT->SetVisAttributes(WCPMTVisAtt);}
+ 
+@@ -732,7 +732,7 @@ G4LogicalVolume* WCSimDetectorConstruction::ConstructPMT(G4String PMTName, G4Str
+       else WCPMTVisAtt = new G4VisAttributes(G4Colour(0.2,0.2,0.2));
+       WCPMTVisAtt->SetForceWireframe(true);
+       WCPMTVisAtt->SetForceAuxEdgeVisible(true); // force auxiliary edges to be shown
+-      //logicGlassFaceWCPMT->SetVisAttributes(G4VisAttributes::Invisible);
++      //logicGlassFaceWCPMT->SetVisAttributes(G4VisAttributes::GetInvisible());
+       logicGlassFaceWCPMT->SetVisAttributes(WCPMTVisAtt);}
+ 
+   // Instantiate a new sensitive detector
+@@ -822,7 +822,7 @@ G4LogicalVolume* WCSimDetectorConstruction::ConstructPMTAndWLSPlate(G4String PMT
+       = new G4VisAttributes(G4Colour(0.0, 1.0, 0.0));
+   visContainer->SetForceWireframe(true);
+ 
+-  logicContainer->SetVisAttributes(G4VisAttributes::Invisible);
++  logicContainer->SetVisAttributes(G4VisAttributes::GetInvisible());
+   //// Uncomment following for WLS visualization
+   logicContainer->SetVisAttributes(visContainer);
+ 
+@@ -887,7 +887,7 @@ G4LogicalVolume* WCSimDetectorConstruction::ConstructPMTAndWLSPlate(G4String PMT
+       = new G4VisAttributes(G4Colour(0.0, 1.0, 1.0));
+   visWLS->SetForceSolid(true);
+ 
+-  logicWCODWLSPlate->SetVisAttributes(G4VisAttributes::Invisible);
++  logicWCODWLSPlate->SetVisAttributes(G4VisAttributes::GetInvisible());
+   //// Uncomment following for WLS visualization
+   logicWCODWLSPlate->SetVisAttributes(visWLS);
+ 
+@@ -903,7 +903,7 @@ G4LogicalVolume* WCSimDetectorConstruction::ConstructPMTAndWLSPlate(G4String PMT
+       = new G4VisAttributes(G4Colour(1.0, 1.0, 1.0));
+   visWLSCladding->SetForceSolid(true);
+ 
+-  logicWCODWLSPlateCladding->SetVisAttributes(G4VisAttributes::Invisible);
++  logicWCODWLSPlateCladding->SetVisAttributes(G4VisAttributes::GetInvisible());
+   //// Uncomment following for WLS visualization
+   logicWCODWLSPlateCladding->SetVisAttributes(visWLSCladding);
+ 
+diff --git a/src/WCSimDetectorConstruction.cc b/src/WCSimDetectorConstruction.cc
+index e311d1c..1ee7279 100644
+--- a/src/WCSimDetectorConstruction.cc
++++ b/src/WCSimDetectorConstruction.cc
+@@ -376,8 +376,8 @@ G4VPhysicalVolume* WCSimDetectorConstruction::Construct()
+ 
+   // Now set the visualization attributes of the logical volumes.
+ 
+-  //   logicWCBox->SetVisAttributes(G4VisAttributes::Invisible);
+-  logicExpHall->SetVisAttributes(G4VisAttributes::Invisible);
++  //   logicWCBox->SetVisAttributes(G4VisAttributes::GetInvisible());
++  logicExpHall->SetVisAttributes(G4VisAttributes::GetInvisible());
+ 
+   //----------------------------------------------------------
+   //BGO Calling and Placement - Diego Costas 29/02/2024 
+diff --git a/src/WCSimLC.cc b/src/WCSimLC.cc
+index 4a7e49d..11c2ab7 100644
+--- a/src/WCSimLC.cc
++++ b/src/WCSimLC.cc
+@@ -192,6 +192,6 @@ G4double WCSimLC::Tsukada_z_from_r (double radius)
+ 
+ void WCSimLC::SetInvisible()
+ {
+-	this->SetVisAttributes(G4VisAttributes::Invisible);
++	this->SetVisAttributes(G4VisAttributes::GetInvisible());
+ 
+ }
+diff --git a/src/WCSimOpticalPhysics.cc b/src/WCSimOpticalPhysics.cc
+index bdc1dbd..403ac1c 100644
+--- a/src/WCSimOpticalPhysics.cc
++++ b/src/WCSimOpticalPhysics.cc
+@@ -215,8 +215,8 @@ void WCSimOpticalPhysics::ConstructProcess()
+   }
+ 
+   fScintillationProcess = new G4Scintillation();
+-  fScintillationProcess->SetScintillationYieldFactor(fYieldFactor);
+-  fScintillationProcess->SetScintillationExcitationRatio(fExcitationRatio);
++  // lumen GDML export (Geant4 11 has no such setter): fScintillationProcess->SetScintillationYieldFactor(fYieldFactor);
++  // lumen GDML export (Geant4 11 has no such setter): fScintillationProcess->SetScintillationExcitationRatio(fExcitationRatio);
+   fScintillationProcess->SetFiniteRiseTime(fFiniteRiseTime);
+   fScintillationProcess->SetScintillationByParticleType(fScintillationByParticleType);
+ #if G4VERSION_NUMBER > 1023
+@@ -287,7 +287,7 @@ void WCSimOpticalPhysics::SetScintillationYieldFactor(G4double val)
+ {
+    fYieldFactor = val;
+    if (fScintillationProcess) {
+-    fScintillationProcess->SetScintillationYieldFactor(fYieldFactor);
++    // lumen GDML export (Geant4 11 has no such setter): fScintillationProcess->SetScintillationYieldFactor(fYieldFactor);
+   }
+ }
+ 
+@@ -295,7 +295,7 @@ void WCSimOpticalPhysics::SetScintillationExcitationRatio(G4double val)
+ {
+   fExcitationRatio = val;
+   if (fScintillationProcess) {
+-    fScintillationProcess->SetScintillationExcitationRatio(fExcitationRatio);
++    // lumen GDML export (Geant4 11 has no such setter): fScintillationProcess->SetScintillationExcitationRatio(fExcitationRatio);
+   }
+ }
+ 
+diff --git a/src/WCSimPhysicsListFactory.cc b/src/WCSimPhysicsListFactory.cc
+index ec8a911..b67acde 100644
+--- a/src/WCSimPhysicsListFactory.cc
++++ b/src/WCSimPhysicsListFactory.cc
+@@ -2,7 +2,7 @@
+ #include <G4Neutron.hh>
+ #include <G4NeutronHPCapture.hh>
+ #include <G4NeutronHPCaptureData.hh>
+-#include <G4HadronCaptureProcess.hh>
++#include <G4NeutronCaptureProcess.hh>  // lumen GDML export: Geant4 11 name
+ #include <G4NeutronRadCapture.hh>
+ #include <G4NeutronCaptureXS.hh>
+ #include <G4CrossSectionDataSetRegistry.hh>
+@@ -10,7 +10,6 @@
+ #include <G4RadioactiveDecayPhysics.hh>
+ #include "WCSimPhysicsListFactory.hh"
+ 
+-#include "GdNeutronHPCapture.hh"
+ 
+ #include "G4PhysicalConstants.hh"
+ #include "G4SystemOfUnits.hh"
+@@ -73,7 +72,7 @@ void WCSimPhysicsListFactory::ConstructProcess() {
+             registry->RemoveMe(registry->FindModel("NeutronHPCapture"));
+         }
+ 
+-        G4HadronCaptureProcess *theCaptureProcess = new G4HadronCaptureProcess;
++        G4NeutronCaptureProcess *theCaptureProcess = new G4NeutronCaptureProcess;
+         manager->AddDiscreteProcess(theCaptureProcess);
+ 
+         G4NeutronCaptureXS *xsNeutronCaptureXS = (G4NeutronCaptureXS *) G4CrossSectionDataSetRegistry::Instance()->GetCrossSectionDataSet(G4NeutronCaptureXS::Default_Name());
+@@ -87,7 +86,7 @@ void WCSimPhysicsListFactory::ConstructProcess() {
+             G4HadronicInteraction *theNeutronHPCapture;
+             if (nCaptModelChoice.compareTo("GLG4Sim", G4String::ignoreCase) == 0) {
+                 G4cout << "Enabling GLG4Sim HP nCapture process" << G4endl;
+-                theNeutronHPCapture = new GdNeutronHPCapture();
++                theNeutronHPCapture = new G4NeutronHPCapture();  // lumen GDML export: GLG4Sim capture not built
+             } else if (nCaptModelChoice.compareTo("HP", G4String::ignoreCase) == 0) {
+                 G4cout << "Enabling HP nCapture process" << G4endl;
+                 theNeutronHPCapture = new G4NeutronHPCapture();
+diff --git a/src/WCSimSteppingAction.cc b/src/WCSimSteppingAction.cc
+index eff6b84..575e0f6 100644
+--- a/src/WCSimSteppingAction.cc
++++ b/src/WCSimSteppingAction.cc
+@@ -3,7 +3,7 @@
+ #include <stdlib.h>
+ #include <stdio.h>
+ #include <WCSimRootEvent.hh>
+-#include <G4SIunits.hh>
++#include <G4SystemOfUnits.hh>
+ #include <G4OpticalPhoton.hh>
+ 
+ #include "G4Track.hh"
+diff --git a/src/WCSimWCDAQMessenger.cc b/src/WCSimWCDAQMessenger.cc
+index 9a0b0cb..631c029 100644
+--- a/src/WCSimWCDAQMessenger.cc
++++ b/src/WCSimWCDAQMessenger.cc
+@@ -68,7 +68,7 @@ WCSimWCDAQMessenger::WCSimWCDAQMessenger(WCSimEventAction* eventaction) :
+   RelativeHitTime->SetGuidance("Set the digitized hit time relative to the first one");
+   RelativeHitTime->SetParameterName("RelativeHitTime",true);
+   RelativeHitTime->SetDefaultValue(defaultRelativeHitTime);
+-  SetNewValue(RelativeHitTime, defaultRelativeHitTime);
++  SetNewValue(RelativeHitTime, G4UIcommand::ConvertToString(defaultRelativeHitTime));
+ 
+   //Generic digitizer specific options
+   DigitizerDir = new G4UIdirectory("/DAQ/DigitizerOpt/");

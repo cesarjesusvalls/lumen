@@ -1,0 +1,11 @@
+## As macros/NEXT100_S1_LT.config.mac (15 bar), one photon per event; no event is run
+/run/verbose 0
+/event/verbose 0
+/tracking/verbose 0
+/process/em/verbose 0
+/nexus/random_seed 1
+/Geometry/Next100/pressure 15. bar
+/Generator/ScintGenerator/region ACTIVE
+/Generator/ScintGenerator/nphotons 1
+/control/execute macros/physics/IonizationElectron.mac
+/nexus/persistency/output_file @OUT@/next100_gdml_dummy
