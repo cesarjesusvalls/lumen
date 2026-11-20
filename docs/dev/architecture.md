@@ -282,7 +282,9 @@ solid's exit and the first daughter entry. Traversal is detached; only the winni
 
 **The surface lookup** (`build/surfaces.py`) evaluates `rules/boundary.py` on the host over every ordered pair of
 volumes the navigator can report, including the coincident-face rule (p → q through a zero-thickness b, outward and
-inward, taking the other leg's interface across a pass). At run time, classes (the volumes that share every crossing)
+inward, taking the other leg's interface across a pass, composed through opaque volumes). A border surface between
+volumes that are not adjacent in the tree (nexus's TPB coatings and the gas they face) is the surface of the
+coincident-face crossing between them; one that no coincident face joins is refused. At run time, classes (the volumes that share every crossing)
 are an internal compression: the step reads (class, class) tables, the navigator a class per volume, and a crossing
 whose class pair resolves to a pass is invisible. An unsupported surface fails closed only where it is reachable. A
 frontpainted transmission into a medium without RINDEX is absorbed where it lands: painted surfaces are PAINTED_T,

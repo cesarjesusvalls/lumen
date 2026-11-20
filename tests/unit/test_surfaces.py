@@ -634,3 +634,61 @@ def test_a_coincident_crossing_past_a_pass_pair_takes_the_border():
     assert k.name == "photocathode" and origin == "sensor:pmt", (k, origin, reasons)
     assert any(r.startswith("pass via") for r in reasons), reasons
     assert o.sensor_index["Inner"] == 0 and not (o.deposit_pre is not None and o.deposit_pre[c["Glass"], c["Inner"]])
+
+
+def test_a_border_across_a_coincident_face_of_an_opaque_shell():
+    """nexus's light tube: the active gas and a coating inside the opaque tube around it, the coating's inner face on
+    the gas's outer one. Geant4 steps from the gas straight into the coating, and a border between the two (neither
+    mother and daughter nor siblings) is that crossing's surface, both ways"""
+    t = tree(
+        ("World", "WorldLV", "Water", None),
+        ("Active", "ActiveLV", "Water", "World"),
+        ("Tube", "TubeLV", "Steel", "World"),
+        ("Coat", "CoatLV", "Acrylic", "Tube"),
+    )
+    o = compile_(t, borders={("Active", "Coat"): "refl", ("Coat", "Active"): "refl2"})
+    k, origin, reasons = kern(o, "Active", "Coat")
+    assert (k, origin) == (legacy.REFLECTOR, "surface:refl") and reasons[0].startswith("coincident via"), reasons
+    assert kern(o, "Coat", "Active")[:2] == (legacy.REFLECTOR, "surface:refl2")
+
+
+def test_a_border_across_two_coincident_faces_of_opaque_volumes():
+    """nexus's SiPM board: a coating at the top of an opaque mask, the mask at the top of an opaque board, the board
+    in the gas; the coating's border to the gas crosses both opaque volumes' coincident faces"""
+    t = tree(
+        ("World", "WorldLV", "Water", None),
+        ("Board", "BoardLV", "Steel", "World"),
+        ("Mask", "MaskLV", "Steel304", "Board"),
+        ("Coat", "CoatLV", "Acrylic", "Mask"),
+    )
+    o = compile_(t, borders={("World", "Coat"): "refl", ("Coat", "World"): "refl2"})
+    assert kern(o, "World", "Coat")[:2] == (legacy.REFLECTOR, "surface:refl")
+    assert kern(o, "Coat", "World")[:2] == (legacy.REFLECTOR, "surface:refl2")
+
+
+def test_a_border_no_coincident_face_joins_is_refused():
+    t = tree(
+        ("World", "WorldLV", "Water", None),
+        ("Box", "BoxLV", "Steel", "World"),
+        ("Inner", "InnerLV", "Acrylic", "Box"),
+        ("Box2", "Box2LV", "Steel304", "World"),
+        ("Inner2", "Inner2LV", "Water", "Box2"),
+    )
+    with pytest.raises(regions.OpticsError, match="never meet"):
+        compile_(t, borders={("Inner", "Inner2"): "refl"})
+
+
+def test_a_dielectric_surface_into_an_opaque_medium_absorbs():
+    """Geant4 checks the medium beyond a polished or ground dielectric_dielectric surface for RINDEX before it reads
+    the surface: without one the photon is killed there (NoRINDEX), as at the Fresnel default"""
+    t = tree(
+        ("World", "WorldLV", "Water", None), ("Coat", "CoatLV", "Acrylic", "World"), ("Case", "CaseLV", "Steel", "Coat")
+    )
+    lib = library()
+    for name, kind, p in (("rt", legacy.DIELECTRIC_RT, {"R": 0.9, "T": 0.05}),
+                          ("ground", legacy.GLISUR_DIELECTRIC, {"R": 1.0, "T": 0.0, "polish": 0.01})):  # fmt: skip
+        lib.surfaces[name] = SurfaceEntry(kind, p, ignored_between_same_material=True)
+        o = compile_(t, lib, skins={"CoatLV": name})
+        k, origin, reasons = kern(o, "Coat", "Case")
+        assert k is legacy.ABSORBER and origin is None and reasons[0].endswith("NoRINDEX"), (name, reasons)
+        assert kern(o, "World", "Coat")[0] is kind

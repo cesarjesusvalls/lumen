@@ -277,10 +277,9 @@ def _check_borders(library, tree, b, never):
             what = "both a library surface and a library sensor" if s in library.surfaces else \
                 "not a library surface or sensor"  # fmt: skip
             raise DescriptionError(f"border ({pre!r} -> {post!r}): {s!r} is {what}")
-        rel = relation(tree, pre, post)
-        if rel is None or (rel == "sibling" and never(pre, post)):
-            raise DescriptionError(f"border surface {s!r} ({pre!r} -> {post!r}): the volumes never touch "
-                                   "(not mother/daughter, not touching siblings)")  # fmt: skip
+        if relation(tree, pre, post) == "sibling" and never(pre, post):
+            raise DescriptionError(f"border surface {s!r} ({pre!r} -> {post!r}): the siblings never touch (declared "
+                                   "disjoint)")  # fmt: skip
 
 
 def _bind_sensors(library, tree, b):
@@ -492,12 +491,14 @@ def pack(optics: Optics, named: dict) -> dict:
 
 # ------------------------------------------------------------------------------------------------- the compiler
 def _class_name(sig):
-    med, skin, sensor, roles = sig
+    med, skin, sensor, lv, roles = sig
     s = med
     if skin is not None:
         s += f"|skin:{skin}"
     if sensor is not None:
         s += f"|sensor:{sensor}"
+    if lv is not None:
+        s += f"|lv:{lv}"
     for partner, d, surf in roles:
         s += f"|border:{surf}{'->' if d == 'out' else '<-'}[{partner}]"
     return s
@@ -526,13 +527,17 @@ def _classes(tree, d):
 
     A border surface binds a PV pair, so a bordered PV's signature holds its border roles; the partner enters by its
     CLASS, refined to a fixed point, not by its PV name (2000 identical PMTs, each glass bordering its own interior,
-    are two classes, not 4000). Once stable the numbering repeats, so the roles name the final classes.
+    are two classes, not 4000). Once stable the numbering repeats, so the roles name the final classes. The two PVs of
+    a border across a coincident face (not adjacent in the tree) also keep their LV: the pairs met across such faces
+    are derived per class, and a class shared with PVs of other volumes could hold both a bordered and a plain
+    crossing into one class.
     """
     roles = {n: [] for n in tree.order}
     for (pre, post), s in d.borders.items():
         roles[pre].append((post, "out", s))
         roles[post].append((pre, "in", s))
-    base = {n: (d.medium[n], d.skin[n], d.sensor[n]) for n in tree.order}
+    far = {n for pair in d.borders if relation(tree, *pair) is None for n in pair}
+    base = {n: (d.medium[n], d.skin[n], d.sensor[n], tree.by_name[n].lv if n in far else None) for n in tree.order}
     sigs, class_of = _classify(tree.order, {n: base[n] + ((),) for n in tree.order})
     while True:
         sig_of = {n: base[n] + (tuple(sorted({(class_of[p], r, s) for p, r, s in roles[n]})),) for n in tree.order}
@@ -697,8 +702,12 @@ class _Regions:
 # where a leg is a PASS (b one medium with p, or with q, no surface between): b is then optically p (q), and the
 # crossing is the other leg's interface, its border and sensor included (Geant4 steps into any b thicker than its
 # 1e-12 m tolerance, and a float32 geometry merges a b thinner than its band). Nested coincident faces compose (to a
-# fixed point). A class pair also adjacent directly keeps its direct surface (the report lists any that would
-# differ). A candidate with no valid surface is left unresolved and listed: crossed, the photon is reported lost.
+# fixed point), also through an opaque p: it holds no photon, so its candidates are only adjacencies for a longer
+# chain (a coating on top of a mask on top of a board meets the gas around the board). A border between two PVs that
+# are not adjacent in the tree is the surface of the crossing such a face makes between them, and one that no
+# coincident face joins is refused. A class pair also adjacent directly keeps its direct surface (the report lists any
+# that would differ). A candidate with no valid surface is left unresolved and listed: crossed, the photon is reported
+# lost.
 
 
 class _Coincident:
@@ -753,6 +762,13 @@ class _Coincident:
         self.via[(p, q)] = b
         return True
 
+    def _leg(self, p, q, pvs, rel):
+        """Add the adjacency p -> q (p opaque: no photon crosses it, a longer chain may pass it); return if new."""
+        leg = self.r.legs.setdefault((p, q), [set(), pvs])
+        new = rel not in leg[0]
+        leg[0].add(rel)
+        return new
+
     def run(self):
         """Add the coincident-face pairs to the regions' ``found``, to a fixed point."""
         r = self.r
@@ -761,12 +777,29 @@ class _Coincident:
             changed = False
             for (b, q), (rq, eq) in sorted(r.legs.items(), key=lambda kv: kv[0]):
                 for (p, b2), (rp, ep) in sorted(r.legs.items(), key=lambda kv: kv[0]):
-                    if b2 != b or p == q or r.opaque[r.sigs[p][0]]:
+                    if b2 != b or p == q:
                         continue
                     rel = self._relation(p, b, q, rp, rq)
-                    if rel is not None and self._candidate(p, b, q, (ep[0], eq[1]), rel):
+                    if rel is None:
+                        continue
+                    if r.opaque[r.sigs[p][0]]:
+                        changed |= (p, q) not in r.found and self._leg(p, q, (ep[0], eq[1]), rel)
+                    elif self._candidate(p, b, q, (ep[0], eq[1]), rel):
                         changed = True
         return self
+
+    def check_borders(self):
+        """Raise for a border between non-adjacent PVs that no coincident face joins (it would never be crossed)."""
+        r, tree = self.r, self.r.tree
+        for (pre, post), s in sorted(r.d.borders.items()):
+            if relation(tree, pre, post) is not None:
+                continue
+            f = r.found.get((r.class_of[pre], r.class_of[post]))
+            if f is None or f[1] not in (f"surface:{s}", f"sensor:{s}"):
+                raise OpticsError(
+                    f"border surface {s!r} ({pre!r} -> {post!r}): the volumes never meet "
+                    "(not mother and daughter, not touching siblings, no coincident face joins them)"
+                )
 
 
 def _tables(found, n_classes):
@@ -843,6 +876,7 @@ def _resolve_all(library: Library, tree, bindings: Bindings, lam_domain) -> Opti
     regions = _Regions(library, tree, d, opaque, (sigs, class_of, sig_of, class_names))
     regions.visit_tree()
     coincident = _Coincident(regions).run()
+    coincident.check_borders()
     surface_types, rows, type_of, row_of, deposit_pre, pairs = _tables(regions.found, C)
     media_of = np.array([media_names.index(s[0]) for s in sigs], np.int32)
     by_name = tree.by_name

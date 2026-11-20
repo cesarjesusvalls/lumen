@@ -10,13 +10,11 @@ cache (`LUMEN_CACHE`), and loads it; later loads reuse the converted file.
 | `annie` | ANNIE (ANNIE's WCSim) | its PMT types (LAPPDs are not sensors yet: [known limits](../explanation/known-limits.md)) | ANNIE's WCSim tables, per tube type |
 | `sbnd` | SBND (sbndcode's full-simulation GDML) | PMTs and X-ARAPUCAs, counted on entry | none: counting sensors |
 | `microboone` | MicroBooNE (LArSoft's public optics) | the optical-detector discs, counted on entry | none: counting sensors |
-| `next100` | NEXT-100 (nexus's optical geometry), **converts but does not load yet** (below) | 60 PMTs and 3584 SiPMs, detected at their photocathode skins | none: the surfaces' EFFICIENCY, as in nexus |
+| `next100` | NEXT-100 (nexus's optical geometry), **loads but does not track yet** (below) | 60 PMTs and 3584 SiPMs, detected at their photocathode skins | none: the surfaces' EFFICIENCY, as in nexus |
 
-NEXT-100 converts (`lumen.convert`, `lumen.gdml.import_gdml`), with nexus's sensor ids in its id map, but
-`lumen.load("next100")` refuses it until lumen reads border surfaces between volumes that meet only across a
-coincident face, which nexus's geometry uses. The refusal names the surface. The navigator
-also cannot number the surfaces of the EL and cathode meshes' 165,000 hexagonal holes yet (its int32 surface codes
-overflow).
+NEXT-100 converts and loads (`lumen.load("next100")`), with nexus's sensor ids in its id map, but the navigator
+cannot number the surfaces of the EL and cathode meshes' 165,000 hexagonal holes (its int32 surface codes
+overflow), so no photon is tracked through it yet.
 
 ## Where the GDML comes from
 

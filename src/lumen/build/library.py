@@ -550,8 +550,33 @@ def _aliased(tree):
     return alias
 
 
+def _nearest(tree, x, ys):
+    """Return the ys whose lowest common ancestor with x is deepest: x's closest relatives among them."""
+    rank = {}
+    n = x
+    while n is not None:
+        rank[n] = len(rank)
+        n = tree.by_name[n].mother
+    best, out = None, []
+    for y in ys:
+        a = y
+        while a is not None and a not in rank:
+            a = tree.by_name[a].mother
+        if a is None or y == x:
+            continue
+        if best is None or rank[a] < best:
+            best, out = rank[a], [y]
+        elif rank[a] == best:
+            out.append(y)
+    return sorted(out)
+
+
 def _border_pairs(tree, seg, a, b, inside):
-    """Return the adjacent tree PV pairs of one border a -> b (GDML physvol names)."""
+    """Return the tree PV pairs of one border a -> b (GDML physvol names).
+
+    The adjacent pairs (mother / daughter, siblings); for an instance of a with none, the instances of b nearest to it
+    in the tree, which it can meet only across coincident faces (the compile checks that it does).
+    """
     grp = getattr(tree, "groups", {}) or {}  # dissolved envelopes: siblings touch within one envelope instance
     bs = set(seg.get(b, ()))
     b_in, b_sib = {}, {}  # b's instances by mother (x's daughters), and by (mother, envelope instance) (siblings)
@@ -563,7 +588,8 @@ def _border_pairs(tree, seg, a, b, inside):
         m = tree.by_name[x].mother
         sib = b_sib.get((m, grp.get(x, "")), ()) if m is not None else ()
         near = set(b_in.get(x, ())) | ({m} & bs) | set(sib)
-        pairs += [(x, y) for y in sorted(near) if y != x and regions.relation(tree, x, y) is not None]
+        mine = [(x, y) for y in sorted(near) if y != x and regions.relation(tree, x, y) is not None]
+        pairs += mine or [(x, y) for y in _nearest(tree, x, bs)]
         # the kept detector against its GDML mother, which the tree holds as the outside: a border from the
         # detector volume into the physvol that contains it
         if m == OUTSIDE_PV and not bs and inside(a, b):

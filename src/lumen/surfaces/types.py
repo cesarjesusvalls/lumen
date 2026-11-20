@@ -557,6 +557,14 @@ def is_painted(stype):
     return stype.name.split("{")[0] == PAINTED_T.name
 
 
+def needs_far_index(stype):
+    """Return whether a type is a polished or ground dielectric_dielectric surface (or one derived by ``fixed``).
+
+    Geant4 kills the photon at one when the medium beyond has no RINDEX (NoRINDEX), before reading the surface.
+    """
+    return stype.name.split("{")[0] in (DIELECTRIC_RT.name, GLISUR_DIELECTRIC.name)
+
+
 def into_opaque(stype):
     """Return ``stype`` with its far-side outcomes absorbed: a frontpainted transmission into a medium without RINDEX.
 

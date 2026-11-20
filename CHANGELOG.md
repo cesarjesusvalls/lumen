@@ -29,6 +29,12 @@ Added:
   refused.
 - A unified sigma_alpha up to 1 rad is read (was 0.5): G4OpticalSurface's default value, which a surface built
   without one (nexus's SiPM board mask) has.
+- A border surface between two volumes that meet only across coincident faces (neither mother and daughter nor
+  siblings: nexus's TPB coating inside the light tube against the active gas, and its SiPM board coating, inside the
+  mask inside the board, against the gas) is read: it is the surface of that crossing, as in Geant4, instead of
+  refused. Such a border that no coincident face joins is refused at load ("the volumes never meet").
+- A polished or ground dielectric_dielectric surface into a medium without RINDEX absorbs the photon there, as
+  Geant4's NoRINDEX does, instead of being refused.
 - A `border_into` sensor volume whose own skin surface detects (EFFICIENCY > 0) is a sensor where Geant4 picks that
   skin (sensor binding entry "skin"), as with nexus's photocathodes, instead of refused.
 - `lumen.detectors.nexus`, the NEXT-100 recipe (`next100`, from nexus's GDML at `LUMEN_DATA/gdml/next100.gdml`): it
