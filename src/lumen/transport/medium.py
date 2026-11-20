@@ -5,8 +5,11 @@ event's direction. A channel's lobe is drawn at the reference values and weighte
 polarised phase function (Rayleigh) is drawn from the photon's own state. After a scattering the state is projected on
 the plane perpendicular to the new direction (G4OpRayleigh's rule, and G4OpMieHG's); a re-emitted photon is
 unpolarised, at a wavelength drawn from the channel's spectrum after a delay of tau under the channel's time profile
-(G4OpWLS: "delta", tau itself, or "exponential", drawn from Exp(tau)), weighted by the mean photon count. Mie
-(G4OpMieHG) is a channel like any other: a medium without MIEHG has no Mie branch.
+(G4OpWLS: "delta", tau itself, or "exponential", drawn from Exp(tau)), weighted by the mean photon count. G4OpWLS
+redraws a photon's energy until it is at most the absorbed photon's, up to ``WLS_TRIES`` times, and drops the photon
+if none is: the wavelength is drawn from the spectrum below that energy and the weight multiplied by the probability
+that one of the tries lands there. Mie (G4OpMieHG) is a channel like any other: a medium without MIEHG has no Mie
+branch.
 """
 
 from __future__ import annotations
@@ -22,6 +25,7 @@ from lumen.transport import estimator, moving_source
 
 sg = jax.lax.stop_gradient
 F32 = jnp.float32
+WLS_TRIES = 100  # G4OpWLS::PostStepDoIt (Geant4 11.3.0)
 
 
 def medium_at(tables, pm, lam, mi):
@@ -80,14 +84,25 @@ def spectrum_arrays(model, ops):
     return lambda spec: ops.tables["spectra"][ids.index(id(spec))]
 
 
-def reemit_draw(spec, tau, rand, arrays_of, profile="exponential"):
+def reemit_draw(spec, tau, rand, arrays_of, profile="exponential", absorbed=None):
     """Return (wavelength, delay) of a re-emission: the spectrum's draw and the delay under ``profile``.
 
     "exponential": Exp(tau) from the second uniform; "delta": tau itself (G4WLSTimeGeneratorProfileDelta). The
-    uniforms are drawn either way, so the photon's random numbers do not depend on the profile.
+    uniforms are drawn either way, so the photon's random numbers do not depend on the profile. ``absorbed``: the
+    absorbed photon's wavelength (nm), below whose energy the spectrum is drawn (G4OpWLS).
     """
     delay = tau if profile == "delta" else -tau * jnp.log(rand[1])
-    return sg(spec.sample(rand[0], arrays_of(spec))), delay
+    arrays = arrays_of(spec)
+    if absorbed is None:
+        return sg(spec.sample(rand[0], arrays)), delay
+    return sg(spec.sample_below(rand[0], absorbed, arrays)), delay
+
+
+def wls_kept(spec, absorbed, arrays_of):
+    """Return the probability that one of G4OpWLS's tries draws an energy at most the absorbed photon's (``absorbed``,
+    nm), the expected fraction of its photons it keeps."""  # noqa: D205, D209
+    f = sg(spec.below(absorbed, arrays_of(spec)))
+    return 1.0 - (1.0 - f) ** WLS_TRIES
 
 
 def _lobe_fns(lobe):
@@ -134,8 +149,9 @@ def channel_draw(model, ops, mi, c, d, pol, lam, rand):  # noqa: PLR0913 -- the 
                 if ch.reemit is None:
                     return BulkDraw(w_c, lp, lpr, lam, F32(0.0), F32(1.0), *st, sens)
                 v = pm[med.name][ch.name]
-                lam2, delay = reemit_draw(ch.reemit, v["tau"], rand["reemit"], arrays_of, ch.time_profile)
-                return BulkDraw(w_c, lp, lpr, lam2, delay, jnp.asarray(v["yield"], F32), *st, sens)
+                lam2, delay = reemit_draw(ch.reemit, v["tau"], rand["reemit"], arrays_of, ch.time_profile, lam)
+                kept = wls_kept(ch.reemit, lam, arrays_of)
+                return BulkDraw(w_c, lp, lpr, lam2, delay, jnp.asarray(v["yield"], F32) * kept, *st, sens)
 
             branches.append(f)
     if not branches:

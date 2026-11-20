@@ -42,6 +42,15 @@ Added:
   does): it converts, loads and tracks, with nexus's sensor ids. A GDML with the meshes built hole by hole loads, but
   its 165,000 holes overflow the navigator's surface codes: write it again with the dielectric grids.
 
+Fixed:
+
+- A bulk wavelength shifter re-emitted at any energy of its WLSCOMPONENT spectrum, also above the absorbed photon's.
+  G4OpWLS redraws the energy up to 100 times until it is at most the absorbed photon's and drops the photon if it
+  never is; lumen now draws from the spectrum below that energy, with the weight multiplied by the probability that
+  one of the 100 draws lands there. Light that a shifter absorbs again (TPB's own blue emission, which TPB absorbs
+  below 440 nm in nexus's NEXT-100) is no longer shifted back to bluer wavelengths: NEXT-100's PMTs see 3 to 5 %
+  more light. A shifter that only absorbs light bluer than all of its emission is unchanged bit for bit.
+
 ## 0.1.3 (2026-11-11)
 
 - tallymap 0.6.0, the final release (rc1 plus four fixes in its CPU backend and process spawning), installed from

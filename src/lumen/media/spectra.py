@@ -59,6 +59,19 @@ class WavelengthSpectrum:
         x = jnp.where(flat, r / jnp.maximum(s0, TINY), 2.0 * r / jnp.maximum(s0 + jnp.sqrt(disc), TINY))
         return wl[i] + jnp.clip(x, 0.0, h)
 
+    def below(self, lam, arrays=None):
+        """Return the probability that a draw's photon energy is at most that of wavelength ``lam`` (nm)."""
+        wl, s, cdf = self.arrays() if arrays is None else arrays
+        x_lam = jnp.clip(lam, wl[0], wl[-1])
+        i = jnp.clip(jnp.searchsorted(wl, x_lam, side="right") - 1, 0, len(self.wl) - 2)
+        h, x = wl[i + 1] - wl[i], x_lam - wl[i]
+        return 1.0 - jnp.clip(cdf[i] + s[i] * x + (s[i + 1] - s[i]) * x * x / (2.0 * h), 0.0, 1.0)
+
+    def sample_below(self, rand, lam, arrays=None):
+        """Return the wavelength (nm) for a uniform in (0, 1), drawn from the spectrum at energies at most HC / lam."""
+        f = self.below(lam, arrays)
+        return self.sample(1.0 - f + rand * f, arrays)
+
     def rand_of(self, lam):
         """Return the uniform that ``sample`` maps to wavelength ``lam`` (nm): the CDF (numpy)."""
         return self.cdf_at(lam)
@@ -127,6 +140,19 @@ class EnergySpectrum:
         den = d0[k] + jnp.sqrt(jnp.maximum(d0[k] * d0[k] + 2.0 * a * r, 0.0))
         x = jnp.where(den > 0.0, 2.0 * r / jnp.where(den > 0.0, den, 1.0), 0.0)
         return HC / (e0[k] + jnp.clip(x, 0.0, h[k]))
+
+    def below(self, lam, arrays=None):
+        """Return the probability that a draw's photon energy is at most HC / lam (``lam`` in nm)."""
+        e0, h, d0, d1, c = self.arrays() if arrays is None else arrays
+        e = HC / lam
+        k = jnp.clip(jnp.searchsorted(e0, e, side="right") - 1, 0, len(self.e0) - 1)
+        x = jnp.clip(e - e0[k], 0.0, h[k])
+        f = jnp.clip(c[k] + d0[k] * x + 0.5 * (d1[k] - d0[k]) / h[k] * x * x, 0.0, 1.0)
+        return jnp.where(e >= e0[-1] + h[-1], 1.0, f)
+
+    def sample_below(self, rand, lam, arrays=None):
+        """Return the wavelength (nm) for a uniform in (0, 1), drawn from the spectrum at energies at most HC / lam."""
+        return self.sample(rand * self.below(lam, arrays), arrays)
 
     def rand_of(self, lam):
         """Return the uniform that ``sample`` maps to ``lam`` (nm), numpy; decreasing in lam."""

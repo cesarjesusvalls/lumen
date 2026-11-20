@@ -18,7 +18,8 @@ opaque (Geant4's NoRINDEX kill); a material named Water without RAYLEIGH gets Ge
 (``geant4_rayleigh``). A wavelength shifter (G4OpWLS) re-emits WLSMEANNUMBERPHOTONS photons on average (Geant4 draws
 a Poisson count; lumen tracks one photon of that weight, the same expectation), 1 without it, after a delay of
 WLSTIMECONSTANT under Geant4's time profile: "delta" (Geant4's default: the constant itself) or "exponential", the
-material's ``wls_time_profile`` setting. Refused: WLS2, a complex index, a Mie constant
+material's ``wls_time_profile`` setting. Each photon's energy is at most the absorbed photon's: Geant4 redraws it from
+WLSCOMPONENT up to 100 times and drops a photon it cannot place there. Refused: WLS2, a complex index, a Mie constant
 Geant4 would read but the material lacks. A user GROUPVEL is not read, with a warning (docs/dev/decisions.md, 16;
 Geant4's own, from a GDML export, is recognised: ``geant4_groupvel_export``).
 

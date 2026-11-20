@@ -9,6 +9,7 @@ import numpy as np
 import pytest
 
 from lumen.media import spectra
+from lumen.transport import medium as tmedium
 from lumen.units import HC
 
 F32 = jnp.float32
@@ -68,3 +69,60 @@ def test_geant4_spectrum_sampler_is_geant4s():
     assert chi2_two(E, Eg, np.linspace(2.5, 3.4, 61)) < 1.6
     assert abs(np.trapezoid(sp.density_energy(grid), grid) - 1) < 2e-3
     assert E.min() >= 2.5 - 1e-4 and E.max() <= 3.4 + 1e-4
+
+
+def g4opwls(energy, intensity, absorbed_ev, n, rng):
+    """G4OpWLS::PostStepDoIt (Geant4 11.3.0): each photon's energy redrawn up to 100 times until it is at most the
+    absorbed photon's; NaN for a photon dropped after 100 misses."""
+    e = geant4_sampler(energy, intensity, rng.random(n))
+    for _ in range(99):
+        miss = e > absorbed_ev
+        if not miss.any():
+            break
+        e[miss] = geant4_sampler(energy, intensity, rng.random(int(miss.sum())))
+    return np.where(e > absorbed_ev, np.nan, e)
+
+
+@pytest.mark.parametrize("absorbed_ev", [2.9, 2.62, 2.505])
+def test_reemission_is_below_the_absorbed_energy_as_g4opwls(absorbed_ev):
+    energy = np.array([2.5, 2.6, 2.75, 2.9, 3.0, 3.1, 3.4])
+    intensity = np.array([0.1, 0.3, 1.0, 0.7, 0.4, 0.2, 0.0])
+    sp = spectra.geant4_spectrum("shifter", energy, intensity)
+    n = 400_000
+    eg = g4opwls(energy, intensity, absorbed_ev, n, np.random.default_rng(2))
+    kept = float(tmedium.wls_kept(sp, F32(HC / absorbed_ev), lambda s: s.arrays()))
+    assert kept == pytest.approx(np.isfinite(eg).mean(), abs=4 * math.sqrt(kept * (1 - kept) / n) + 1e-6)
+    u = jax.random.uniform(jax.random.PRNGKey(4), (n, 2), F32, 1e-7, 1 - 1e-7)
+    lam, _ = jax.vmap(lambda r: tmedium.reemit_draw(sp, F32(0.0), r, lambda s: s.arrays(), "delta",
+                                                    F32(HC / absorbed_ev)))(u)  # fmt: skip
+    e = HC / np.asarray(lam, np.float64)
+    assert e.max() <= absorbed_ev * (1 + 1e-6)
+    edges = np.linspace(2.5, absorbed_ev, 41)
+    cdf = sp.rand_of(HC / edges)
+    for sample in (e, eg[np.isfinite(eg)]):
+        assert chi2_exact(sample, edges, np.diff(cdf) / cdf[-1]) < 1.6
+
+
+def chi2_exact(sample, edges, p):
+    h = np.histogram(sample, edges)[0].astype(float)
+    expected = p * sample.size
+    return float(np.sum((h - expected) ** 2 / expected) / (len(p) - 1))
+
+
+def test_reemission_above_the_spectrum_is_the_plain_draw():
+    sp = spectra.geant4_spectrum("shifter", np.array([2.5, 2.9, 3.4]), np.array([0.2, 1.0, 0.0]))
+    u = jax.random.uniform(jax.random.PRNGKey(5), (1000, 2), F32)
+    plain = jax.vmap(lambda r: tmedium.reemit_draw(sp, F32(0.0), r, lambda s: s.arrays()))(u)[0]
+    cut = jax.vmap(lambda r: tmedium.reemit_draw(sp, F32(0.0), r, lambda s: s.arrays(), "exponential",
+                                                 F32(HC / 3.5)))(u)[0]  # fmt: skip
+    assert bool(jnp.all(plain == cut))
+    assert float(tmedium.wls_kept(sp, F32(HC / 3.5), lambda s: s.arrays())) == 1.0
+
+
+def test_wavelength_spectrum_below_is_its_cdf():
+    sp = spectra.wavelength_spectrum("w", np.array([400.0, 450.0, 520.0]), np.array([0.2, 1.0, 0.1]))
+    lam = np.array([390.0, 400.0, 431.0, 480.0, 520.0, 600.0])
+    below = np.asarray(jax.vmap(sp.below)(jnp.asarray(lam, F32)), np.float64)
+    assert np.allclose(below, 1.0 - sp.cdf_at(lam), atol=2e-6)
+    draws = np.asarray(jax.vmap(lambda r: sp.sample_below(r, F32(431.0)))(jnp.linspace(1e-6, 1 - 1e-6, 2001)))
+    assert draws.min() >= 431.0 - 1e-3 and draws.max() <= 520.0 + 1e-3
