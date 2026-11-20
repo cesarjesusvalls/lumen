@@ -77,6 +77,11 @@ SETS = {
         {"R": 0.0, "T": 1.0, "eff": 0.5},
         {"R": 0.8, "T": 0.4, "eff": 0.5},
     ],
+    "glisur_dielectric": [
+        {"R": 0.7, "T": 0.1, "polish": 0.01},
+        {"R": 1.0, "T": 0.0, "polish": 0.5},
+        {"R": 0.8, "T": 0.4, "polish": 0.99},
+    ],
     "glisur_metal": [{"R": 0.8, "polish": 0.7}, {"R": 1.3, "polish": 0.0}],
     "glisur_metal_eff": [{"R": 0.8, "polish": 0.7, "eff": 0.3}, {"R": 0.0, "polish": 0.99, "eff": 1.0}],
     "specular_metal": [{"R": 0.9}, {"R": 1.5}, {"R": -0.2}],
@@ -102,7 +107,7 @@ PAIRS = [(1.0, 1.33), (1.33, 1.0), (1.33, 1.5), (1.5, 1.0), (1.36, 1.36), (1.0, 
 
 
 def test_every_type_has_parameter_sets():
-    assert len(legacy.TYPES) == 18
+    assert len(legacy.TYPES) == 19
     assert sorted(t.name for t in legacy.TYPES) == sorted(SETS)
 
 

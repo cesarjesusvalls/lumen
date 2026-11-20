@@ -57,6 +57,9 @@ TOY = """<?xml version="1.0" encoding="UTF-8" ?>
   <opticalsurface name="dich" model="dichroic" finish="polished" type="dielectric_dichroic" value="1"/>
   <opticalsurface name="back" model="unified" finish="groundbackpainted" type="dielectric_dielectric" value="0.1"/>
   <opticalsurface name="gdie" model="unified" finish="ground" type="dielectric_dielectric" value="0.1"/>
+  <opticalsurface name="gdieG" model="glisur" finish="ground" type="dielectric_dielectric" value="0.3">
+    <property name="TRANSMITTANCE" ref="HALF"/></opticalsurface>
+  <opticalsurface name="gdie1" model="glisur" finish="ground" type="dielectric_dielectric" value="1"/>
   <opticalsurface name="pdieR" model="glisur" finish="polished" type="dielectric_dielectric" value="1">
     <property name="REFLECTIVITY" ref="HALF"/></opticalsurface>
   <opticalsurface name="eff" model="glisur" finish="polished" type="dielectric_metal" value="1">

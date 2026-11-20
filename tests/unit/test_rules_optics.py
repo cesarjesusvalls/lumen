@@ -157,9 +157,10 @@ def test_groupvel_export_is_accepted_a_user_table_not_read(df):
 
 SUPPORTED = {"glis": legacy.GLISUR_METAL, "glispol": legacy.SPECULAR_METAL, "glis1": legacy.SPECULAR_METAL,
              "uni": legacy.UNIFIED_METAL, "paint": legacy.PAINTED_T, "paintT": legacy.PAINTED_T,
-             "die": legacy.DIELECTRIC_RT, "pdieR": legacy.DIELECTRIC_RT}  # fmt: skip
+             "die": legacy.DIELECTRIC_RT, "pdieR": legacy.DIELECTRIC_RT, "gdieG": legacy.GLISUR_DIELECTRIC,
+             "gdie1": legacy.DIELECTRIC_RT}  # fmt: skip
 # a dielectric_dielectric type never depends on whether R or T is present: Geant4 reads them at its defaults (R 1, T 0)
-REFUSED = {"lut": "model", "dich": "model", "back": "finish", "gdie": "ground dielectric", "eff": "EFFICIENCY",
+REFUSED = {"lut": "model", "dich": "model", "back": "finish", "gdie": "unified ground dielectric", "eff": "EFFICIENCY",
            "mT": "TRANSMITTANCE", "cplx": "REALRINDEX", "usig": "sigma_alpha", "neg": "polish"}  # fmt: skip
 
 
@@ -170,6 +171,8 @@ def test_surfaces_supported_and_refused(df):
     assert rules.surface(s["die"]).ignored_between_same_material
     assert not rules.surface(s["paint"]).ignored_between_same_material
     assert rules.surface(s["glis"]).params["polish"] == 0.5 and rules.surface(s["paint"]).params["f_spec"] == 0.0
+    g = rules.surface(s["gdieG"])  # Geant4's R + T cut before DielectricDielectric; skipped between one material
+    assert g.params == {"R": 1.0, "T": 0.5, "polish": 0.3} and g.ignored_between_same_material
     assert rules.surface(s["paintT"]).params["f_spec"] == 1.0
     rt = rules.surface(s["pdieR"])  # absorption before Fresnel (WCSim's PMT cathode surface)
     assert rt.ignored_between_same_material and rt.params["T"] == 0.0 and set(rt.params) == {"R", "T"}

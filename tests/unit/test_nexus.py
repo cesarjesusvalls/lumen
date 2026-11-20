@@ -68,7 +68,13 @@ def test_unsupported_surfaces_are_refused_by_name(result):
             optics.surface(s)
         except optics.OpticsRefused as err:
             refused[name.split("0x")[0]] = str(err)
-    assert sorted(refused) == ["SIPM_BOARD_MASK_OPSURF", "SIPM_BOARD_MASK_WLS_OPSURF", "SIPM_S13372_WLS_OPSURF",
-                               "gas_tpb_teflon_surf", "tpb_sapphire_surf"]  # fmt: skip
+    assert sorted(refused) == ["SIPM_BOARD_MASK_OPSURF"]
     assert "sigma_alpha 1.0" in refused["SIPM_BOARD_MASK_OPSURF"]
-    assert all("ground dielectric_dielectric" in v for k, v in refused.items() if k != "SIPM_BOARD_MASK_OPSURF")
+
+
+def test_tpb_coatings_are_glisur_facet_refraction(result):
+    for name, s in result.detector_file.surfaces.items():
+        if name.startswith(("SIPM_BOARD_MASK_WLS_OPSURF", "SIPM_S13372_WLS_OPSURF", "gas_tpb_teflon_surf",
+                            "tpb_sapphire_surf")):  # fmt: skip
+            e = optics.surface(s)
+            assert e.surface_type is legacy.GLISUR_DIELECTRIC and e.params["polish"] == 0.01, name

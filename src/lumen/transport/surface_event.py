@@ -5,9 +5,9 @@ branch each, its parameters gathered by the pair's row) gives the ten outcomes' 
 deposited in expectation by the step; one continuing outcome is drawn from the reference probabilities and weighted
 live / reference. Its direction: a deterministic map (straight, refraction, mirror, backscatter) with the Jones map of
 the type's complex amplitudes, Geant4's facet path for GLOSSY (``lumen.surfaces.facets``, weighted as a whole path
-by its live / reference path density), a Lambertian lobe for DIFFUSE and DIFFUSE_T, and the type's re-emission lobe
-for REEMIT. A layered surface is crossed one layer per vertex at the same point. What each type means:
-G4OpBoundaryProcess (PostStepDoIt, DielectricMetal, DoReflection).
+by its live / reference path density; a refracting path ends on either side), a Lambertian lobe for DIFFUSE and
+DIFFUSE_T, and the type's re-emission lobe for REEMIT. A layered surface is crossed one layer per vertex at the same
+point. What each type means: G4OpBoundaryProcess (PostStepDoIt, DielectricMetal, DielectricDielectric, DoReflection).
 """
 
 from __future__ import annotations
@@ -163,6 +163,30 @@ def _facet_path_branch(lobe, lb):
     return f
 
 
+def _refracting_path_branch(lobe, lb):
+    def f(_):
+        live, ref = dict(lb.width, er=lb.er, ei=lb.ei), dict(lb.width_ref, er=sg(lb.er), ei=sg(lb.ei))
+        W, k, C, ended = lobe.path(ref, lb.wi, lb.n, lb.rand)
+        W = sg(W)
+        d_ = W[k - 1]
+        lp = lobe.path_logpdf(live, lb.wi, lb.n, W, k, C)
+        w_ = reweight_log(lp, sg(lp) if lb.shared else lobe.path_logpdf(ref, lb.wi, lb.n, W, k, C))
+        e_ = lobe.path_state(live, lb.wi, lb.n, W, k, C)
+        sens = ()
+        if lb.moving:  # the path's last direction is the one the next end pins
+            p0, wi0, n0 = sg(live), sg(lb.wi), sg(lb.n)
+            g = sg(jax.jacfwd(lambda wl: lobe.path_logpdf(p0, wi0, n0, W.at[k - 1].set(wl), k, C))(d_))
+            E = ms.sensitivity(lambda wl: lobe.path_state(p0, wi0, n0, W.at[k - 1].set(wl), k, C), d_)
+            sens = (g, *E)
+        return (d_, w_ * ended.astype(w_.dtype), *e_, *sens)
+
+    return f
+
+
+def _path_branch(lobe, lb):
+    return _refracting_path_branch(lobe, lb) if lobe.refracts else _facet_path_branch(lobe, lb)
+
+
 def _lambert_branch(lobe, state, lb):
     def f(_):
         d_ = sg(lobe.sample({}, lb.wi, lb.n, lb.rand))
@@ -210,7 +234,7 @@ def outcome_direction(tables, stype, o, cross, lb):
 
     br = [delta(k_) for k_ in range(N_OUTCOMES)]
     paths = [facets.FACET_LOBES[kd.glossy] for kd in tables.surface_types] or [facets.UNIFIED]
-    br[GLOSSY] = _by_type(stype, [(c, _facet_path_branch(c, lb)) for c in paths])
+    br[GLOSSY] = _by_type(stype, [(c, _path_branch(c, lb)) for c in paths])
     br[DIFFUSE] = _lambert_branch(lobes.LAMBERT, facet_e, lb)
     br[DIFFUSE_T] = _lambert_branch(lobes.LAMBERT_T, none_e, lb)  # a diffuser: unpolarised
     rlobes = [kd.reemit_lobe or lobes.LAMBERT for kd in tables.surface_types] or [lobes.LAMBERT]
@@ -236,6 +260,20 @@ def reemission(tables, stype, o, lam_tau, rand, arrays_of):
     lam_r, dt_r = jax.lax.switch(jnp.maximum(stype, 0), [remit(kd) if kd.reemit is not None else keep
                                                         for kd in tables.surface_types], None)  # fmt: skip
     return jnp.where(o == REEMIT, lam_r, lam), jnp.where(o == REEMIT, dt_r, 0.0)
+
+
+def far_side(tables, stype, o, drawn, d_new, nrm):
+    """Return whether the photon ends beyond the surface after outcome o (``FAR_SIDE``).
+
+    A refracting GLOSSY path (``facets.GLISUR_DIELECTRIC``) ends on the side its last direction points into:
+    beyond the surface when d_new . nrm < 0 (``nrm`` the facing normal).
+    """
+    far = jnp.asarray(FAR_SIDE)[o] & drawn
+    flags = [facets.FACET_LOBES[kd.glossy].refracts for kd in tables.surface_types]
+    if not any(flags):
+        return far
+    sided = jnp.asarray(flags)[jnp.maximum(stype, 0)] & (stype >= 0) & (o == GLOSSY)
+    return jnp.where(sided, drawn & (jnp.sum(d_new * nrm, -1) < 0.0), far)
 
 
 def is_stack(tables, stype):

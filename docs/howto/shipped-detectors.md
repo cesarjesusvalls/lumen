@@ -13,9 +13,9 @@ cache (`LUMEN_CACHE`), and loads it; later loads reuse the converted file.
 | `next100` | NEXT-100 (nexus's optical geometry), **converts but does not load yet** (below) | 60 PMTs and 3584 SiPMs, detected at their photocathode skins | none: the surfaces' EFFICIENCY, as in nexus |
 
 NEXT-100 converts (`lumen.convert`, `lumen.gdml.import_gdml`), with nexus's sensor ids in its id map, but
-`lumen.load("next100")` refuses it until lumen reads three more things nexus's geometry uses: ground
-dielectric_dielectric surfaces (its TPB coatings), a unified lobe width of 1 rad (the SiPM board mask) and border
-surfaces between volumes that meet only across a coincident face. Each refusal names the surface. The navigator
+`lumen.load("next100")` refuses it until lumen reads two more things nexus's geometry uses: a unified lobe width of
+1 rad (the SiPM board mask) and border surfaces between volumes that meet only across a coincident face. Each refusal
+names the surface. The navigator
 also cannot number the surfaces of the EL and cathode meshes' 165,000 hexagonal holes yet (its int32 surface codes
 overflow).
 

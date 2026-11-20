@@ -62,12 +62,11 @@ def not_parameters(rec) -> frozenset:
 
 
 def value_read(rec: fmt.Surface) -> bool:
-    """Whether the model reads a surface's value (sigma_alpha or polish): Geant4's dielectric_metal, ground finish.
+    """Whether the model reads a surface's value (sigma_alpha or polish): Geant4's ground finish.
 
-    Unified reads sigma_alpha in GetFacetNormal for a lobe reflection, glisur its polish. A polished or painted
-    finish never samples a facet, nor does sigma_alpha 0 or polish 1 (the facet is the normal), and lumen's
-    dielectric_dielectric surfaces are polished or painted;
-    LArSoft's OpBoundaryProcessSimple (``lumen:larsoft_reflector``) and a WLS film's record read no value.
+    Unified reads sigma_alpha in GetFacetNormal, glisur its polish. A polished or painted finish never samples a
+    facet, nor does sigma_alpha 0 or polish 1 (the facet is the normal); LArSoft's OpBoundaryProcessSimple
+    (``lumen:larsoft_reflector``) and a WLS film's record read no value.
     """
     from lumen.rules import optics
 

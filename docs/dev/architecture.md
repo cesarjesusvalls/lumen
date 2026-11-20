@@ -390,10 +390,11 @@ model maps each `opticalsurface` (type, model, finish) to one of them.
 | UNIFIED_METAL, DIELECTRIC_METAL | dielectric_metal unified ground (spike, lobe facet path, backscatter, Lambert) | ANNIE holders and liner |
 | UNIFIED_METAL_FLAT, DIELECTRIC_METAL_FLAT | dielectric_metal unified ground, sigma_alpha 0 (the lobe a mirror about the normal; decision 21) | NEXT-100 meshes and copper plate |
 | GLISUR_METAL, GLISUR_METAL_EFF | dielectric_metal glisur ground (facet path) | SBND steel |
+| GLISUR_DIELECTRIC | dielectric_dielectric glisur ground: the REFLECTIVITY / TRANSMITTANCE cut, then a facet path of reflections and refractions that ends on either side | NEXT-100 TPB coatings |
 | REFLECTOR, SENSOR, PHOTOCATHODE, COUNTING | LArSoft reflector; detecting reflector; complex-index cathode; counting sensor | MicroBooNE, SBND |
 | coated | a WLS film over a backing (Geometry and the Geant4 rules) | SBND TPB |
 
-Refused at import with a message: ground dielectric_dielectric, backpainted finishes, complex-index ground metals,
+Refused at import with a message: unified ground dielectric_dielectric, backpainted finishes, complex-index ground metals,
 Geant4's `coated` type, LUT, LUTDAVIS, dichroic, SURFACEROUGHNESS. The surface outcomes have ten indices
 (`surfaces/outcomes.py`). Each surface type is one `lax.switch` branch; its tables enter as operands. The surface
 readers `lumen:geant4` and `lumen:complex_index`, which choose a detecting surface type for `border_into` groups, are

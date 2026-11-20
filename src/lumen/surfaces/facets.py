@@ -15,11 +15,22 @@ weights the whole path (``Lobe.path``, ``Lobe.path_logpdf``).
   V . M <= 0. Per solid angle of m = M / |M|: p_m = 2 q (3 c^2 + q^2) / (3 Z), c = m . n, q^2 = c^2 - (1 - r^2), Z the
   cut ball's volume. Bounded, vanishing at the cone's edge: no boundary term. The width is carried as "sigma_alpha".
 
+A GLISUR dielectric path is Geant4's DielectricDielectric on a ground glisur surface: at each facet the photon's
+Fresnel shares about the facet (with its Jones vector) choose reflection or refraction; a refraction that leaves
+the photon pointing back at the surface swaps the two media and flips the normal; the loop ends when the direction
+leaves the surface on the photon's current side. The path records each direction and which facets refracted
+(``C``); the photon ends beyond the surface when its last direction points into the far side. Per solid angle of
+the outgoing w, a reflection has p_m(m) R(m) / (4 V.m) with m = unit(V + w), a refraction
+p_m(m) (1 - R(m)) nb^2 cos2 / (na cos1 - nb cos2)^2 with m = unit(nb w - na d) sign(na - nb) (d = -V, na the
+photon's medium, cos1 = V.m, cos2 = -w.m). Media whose indices differ by less than INDEX_MATCH (relative) refract
+straight through (Geant4: R = 0 and the refraction keeps the direction); that facet carries no density.
+
 Sampling: rejection, at most FACET_TRIES draws per facet and FACETS_MAX facets per path (weight 0 after).
 
 Notes
 -----
-G4OpBoundaryProcess v11.3.2 (identical in 10.7): GetFacetNormal, DoReflection, DielectricMetal.
+G4OpBoundaryProcess v11.3.2 (identical in 10.7): GetFacetNormal, DoReflection, DielectricMetal. DielectricDielectric:
+Geant4 11.3.0 (before 11.3 a positive TRANSMITTANCE replaced each facet's Fresnel transmission).
 """
 
 # ruff: noqa: N803 -- the module docstring's math names (Vl, M, W, Y, ...) as arguments
@@ -31,7 +42,8 @@ import jax.numpy as jnp
 import numpy as np
 
 from lumen._core import frames, rng
-from lumen._core.safe import literal, safe_sqrt
+from lumen._core.safe import literal, safe_log, safe_sqrt, unit
+from lumen.surfaces import fresnel, outcomes, polar
 from lumen.surfaces.lobes import Lobe
 
 sg = jax.lax.stop_gradient
@@ -40,6 +52,7 @@ FACETS_MAX = 10  # facets per path: a path still pointing into the surface after
 FACET_TRIES = 64  # facet draws per facet: after these (probability < 1e-12) the last draw is kept
 LOG_TINY = math.log(1e-30)  # a log density off the support
 UP = (0.0, 0.0, 1.0)  # the local normal
+INDEX_MATCH = 1e-6  # |na - nb| / max(na, nb) at or below this: a facet refraction keeps the direction
 
 
 def _up():
@@ -353,8 +366,119 @@ def _facet_path_lobe(name, facet, facet_lp):
                 path_logpdf=_path_logpdf_of(facet_lp))  # fmt: skip
 
 
+def facet_fresnel(d, m, na, nb, er, ei):
+    """Return (R, s axis, (E_s, E_p), (r_s, r_p, t_s, t_p)) of a photon (direction d, state er + i ei) at facet m.
+
+    R is the state's Fresnel reflectance from index na into nb about m (1 under total internal reflection).
+    """
+    cos1 = jnp.clip(-jnp.sum(d * m, -1), 0.0, 1.0)
+    s_ax = polar.s_axis(d, m, er)
+    es, ep = polar.components(er, ei, d, s_ax)
+    amps = fresnel.amplitudes(cos1, na, nb)
+    fs, fp = jnp.abs(es) ** 2, jnp.abs(ep) ** 2
+    tir = (na / nb) ** 2 * (1.0 - cos1 * cos1) >= 1.0
+    r = (jnp.abs(amps[0]) ** 2 * fs + jnp.abs(amps[1]) ** 2 * fp) / jnp.maximum(fs + fp, 1e-30)
+    return jnp.where(tir, 1.0, jnp.clip(r, 0.0, 1.0)), s_ax, (es, ep), amps
+
+
+def _matched(na, nb):
+    return jnp.abs(na - nb) <= INDEX_MATCH * jnp.maximum(na, nb)
+
+
+def _dielectric_event(r, d, N, na, nb, er, ei, key):  # noqa: PLR0913 -- the facet's pieces
+    """Draw one GLISUR facet event about the normal N (d . N < 0): return (w, refracted, er, ei after it)."""
+    m = frames.to_world(glisur_facet(r, frames.to_local(-d, N), key), N)
+    R, s_ax, comps, (rs, rp, ts, tp) = facet_fresnel(d, m, na, nb, er, ei)
+    u = rng.uniforms(jax.random.fold_in(key, FACET_TRIES + 1), 1)[0]
+    matched = _matched(na, nb)
+    refr = matched | (u >= R)
+    w_t = jnp.where(matched, d, outcomes.refract(d, m, na / nb)[0])
+    w_r = frames.reflect(d, m)
+    e_t = polar.recombine(*comps, ts, tp, s_ax, w_t)
+    e_r = polar.recombine(*comps, rs, rp, s_ax, w_r)
+    er2 = jnp.where(matched, er, jnp.where(refr, e_t[0], e_r[0]))
+    ei2 = jnp.where(matched, ei, jnp.where(refr, e_t[1], e_r[1]))
+    return jnp.where(refr, w_t, w_r), refr, er2, ei2
+
+
+def glisur_dielectric_path(p, wi, n, rand):
+    """Return (W (FACETS_MAX, 3), k, C (FACETS_MAX,) refracted, ended) of a GLISUR dielectric path, detached.
+
+    ``p``: ``sigma_alpha`` (r = 1 - polish), ``n1`` / ``n2`` the indices before and beyond the surface, ``er`` / ``ei``
+    the photon's state; ``n`` the facing normal (wi . n < 0). ``ended`` is False when the path ran out of facets.
+    """
+    r, na0, nb0 = sg(p["sigma_alpha"]), sg(p["n1"]), sg(p["n2"])
+    wi, n = sg(wi), sg(n)
+    key = seed_key(rand)
+
+    def body(st):
+        j, d, side, na, nb, er, ei, W, C, _ = st
+        N = side * n
+        w, refr, er, ei = _dielectric_event(r, d, N, na, nb, er, ei, jax.random.fold_in(key, j))
+        dn = jnp.sum(w * N)
+        done = jnp.where(refr, dn <= 0.0, dn >= 0.0)
+        swap = refr & ~done
+        return (j + 1, w, jnp.where(swap, -side, side), jnp.where(swap, nb, na), jnp.where(swap, na, nb), er, ei,
+                W.at[j].set(w), C.at[j].set(refr), done)  # fmt: skip
+
+    init = (jnp.int32(0), wi, jnp.ones((), wi.dtype), na0, nb0, sg(p["er"]), sg(p["ei"]),
+            jnp.zeros((FACETS_MAX, 3), wi.dtype), jnp.zeros(FACETS_MAX, jnp.bool_), jnp.bool_(False))  # fmt: skip
+    k, _, _, _, _, _, _, W, C, done = jax.lax.while_loop(lambda st: (~st[9]) & (st[0] < FACETS_MAX), body, init)
+    return W, k, C, done
+
+
+def glisur_dielectric_scan(p, wi, n, W, k, C):
+    """Return (log path density, er, ei after the path) of a given GLISUR dielectric path (live in p, wi, n)."""
+    r = p["sigma_alpha"]
+
+    def body(c, x):
+        acc, d, side, na, nb, er, ei, j = c
+        w0, refr0 = x
+        use = j < k
+        N = side * n
+        refr = use & refr0
+        w = jnp.where(use, w0, frames.reflect(d, N))
+        V = -d
+        H = jnp.where(refr, (nb * w - na * d) * jnp.sign(na - nb), V + w)
+        m = unit(H, fallback=N)
+        lpm, ok = _glisur_log_density(r, frames.to_local(V, N), frames.to_local(m, N))
+        R, s_ax, comps, (rs, rp, ts, tp) = facet_fresnel(d, m, na, nb, er, ei)
+        c1, c2 = jnp.sum(V * m), -jnp.sum(w * m)
+        lp_r = lpm + safe_log(R) - safe_log(4.0 * c1)
+        lp_t = (lpm + safe_log(1.0 - R) + 2.0 * jnp.log(nb) + safe_log(c2)
+                - 2.0 * safe_log(jnp.abs(na * c1 - nb * c2)))  # fmt: skip
+        good = ok & jnp.where(refr, (c2 > 0.0) & (R < 1.0), R > 0.0)
+        matched = refr & _matched(na, nb)
+        lp = jnp.where(matched, 0.0, jnp.where(good, jnp.where(refr, lp_t, lp_r), LOG_TINY))
+        e_t = polar.recombine(*comps, ts, tp, s_ax, w)
+        e_r = polar.recombine(*comps, rs, rp, s_ax, w)
+        er2 = jnp.where(matched | ~use, er, jnp.where(refr, e_t[0], e_r[0]))
+        ei2 = jnp.where(matched | ~use, ei, jnp.where(refr, e_t[1], e_r[1]))
+        swap = refr & (jnp.sum(w * N) > 0.0)
+        c = (acc + jnp.where(use, lp, 0.0), jnp.where(use, w, d), jnp.where(swap, -side, side),
+             jnp.where(swap, nb, na), jnp.where(swap, na, nb), er2, ei2, j + 1)  # fmt: skip
+        return c, None
+
+    init = (jnp.zeros((), W.dtype), wi, jnp.ones((), W.dtype), p["n1"], p["n2"], p["er"], p["ei"], jnp.int32(0))
+    (acc, _, _, _, _, er, ei, _), _ = jax.lax.scan(body, init, (W, C), unroll=True)
+    return acc, er, ei
+
+
+def _dielectric_lobe(name):
+    def weight(p, wi, n, wo):
+        return jnp.ones(wo.shape[:-1], wo.dtype)
+
+    return Lobe(name, delta=False, surface=True, n_rand=3, params=("sigma_alpha",), sample=None, logpdf=None,
+                weight=weight, axis=lambda p, wi, n: frames.reflect(wi, n), path=glisur_dielectric_path,
+                path_logpdf=lambda p, wi, n, W, k, C: glisur_dielectric_scan(p, wi, n, W, k, C)[0],
+                refracts=True,
+                path_state=lambda p, wi, n, W, k, C: glisur_dielectric_scan(p, wi, n, W, k, C)[1:])  # fmt: skip
+
+
 # Geant4's unified lobe (width sigma_alpha, valid in [0.005, 0.5]) and GLISUR's (width r = 1 - polish, carried under
-# the name "sigma_alpha"); chosen by the surface type's ``glossy`` name
+# the name "sigma_alpha"); chosen by the surface type's ``glossy`` name. GLISUR_DIELECTRIC's path reads the indices
+# and the state too (``n1``, ``n2``, ``er``, ``ei``).
 UNIFIED = _facet_path_lobe("unified", unified_facet, unified_facet_logpdf)
 GLISUR = _facet_path_lobe("glisur", glisur_facet, glisur_facet_logpdf)
-FACET_LOBES = {"unified": UNIFIED, "glisur": GLISUR}
+GLISUR_DIELECTRIC = _dielectric_lobe("glisur_dielectric")
+FACET_LOBES = {"unified": UNIFIED, "glisur": GLISUR, "glisur_dielectric": GLISUR_DIELECTRIC}

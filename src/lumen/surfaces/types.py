@@ -9,10 +9,10 @@ expectation and a continuing one is drawn by the step; directions come from the 
 and after at lam), the photon's Jones vector ``er``, ``ei`` and, on a layered surface, ``layer``. Without the Jones
 vector the Fresnel shares are the unpolarised ones and a type with no ``amps`` is a perfect mirror.
 
-There are eighteen types plus ``coated`` (a wavelength-shifting film over any opaque type): PASS, ABSORBER,
-DIELECTRIC, DIELECTRIC_RT, DIELECTRIC_RT_SENSOR, REFLECTOR, SENSOR, PHOTOCATHODE, COUNTING, DIELECTRIC_METAL,
-DIELECTRIC_METAL_FLAT, GLISUR_METAL, GLISUR_METAL_EFF, SPECULAR_METAL, UNIFIED_METAL, UNIFIED_METAL_FLAT, PAINTED and
-PAINTED_T.
+There are nineteen types plus ``coated`` (a wavelength-shifting film over any opaque type): PASS, ABSORBER,
+DIELECTRIC, DIELECTRIC_RT, DIELECTRIC_RT_SENSOR, GLISUR_DIELECTRIC, REFLECTOR, SENSOR, PHOTOCATHODE, COUNTING,
+DIELECTRIC_METAL, DIELECTRIC_METAL_FLAT, GLISUR_METAL, GLISUR_METAL_EFF, SPECULAR_METAL, UNIFIED_METAL,
+UNIFIED_METAL_FLAT, PAINTED and PAINTED_T.
 """
 
 from collections.abc import Callable
@@ -68,9 +68,10 @@ class SurfaceType:
     ``outcomes`` listed can be non-zero. ``lobe_params(p, ctx)`` gives the lobes' parameters (``sigma_alpha`` for the
     GLOSSY lobe). ``reemit`` is the spectrum of the REEMIT outcome (``lumen.media.spectra``) or None, and
     ``reemit_lobe`` its direction lobe (None: Lambertian about the normal). ``glossy`` names the facet-path lobe of the
-    GLOSSY outcome: "unified" (Geant4's unified model) or "glisur". ``stack`` marks a layered surface (``coated``),
-    whose ``lobe_params`` also gives ``film`` and ``coated``. ``amps(p, ctx)`` gives the complex amplitudes
-    (r_s, r_p, t_s, t_p) of SPECULAR and REFRACT; None is a perfect mirror.
+    GLOSSY outcome (``lumen.surfaces.facets.FACET_LOBES``): "unified" (Geant4's unified model), "glisur", or
+    "glisur_dielectric", whose path refracts and ends on either side of the surface. ``stack`` marks a layered surface
+    (``coated``), whose ``lobe_params`` also gives ``film`` and ``coated``. ``amps(p, ctx)`` gives the complex
+    amplitudes (r_s, r_p, t_s, t_p) of SPECULAR and REFRACT; None is a perfect mirror.
     """
 
     name: str
@@ -184,6 +185,22 @@ DIELECTRIC_RT_SENSOR = SurfaceType(
     _dielectric_rt,
     amps=_dielectric_amps,
 )
+
+
+def _glisur_dielectric(p, ctx):
+    """Geant4's ground glisur dielectric_dielectric surface with REFLECTIVITY and TRANSMITTANCE tables.
+
+    The same draw against R, then R + T, as DIELECTRIC_RT: below R the photon meets the two media's facets
+    (DielectricDielectric, the GLOSSY facet path of radius 1 - polish, ending on either side), between R and R + T it
+    passes straight on, above it is absorbed.
+    """
+    r, t, a = chained_cuts(p["R"], p["T"])
+    return outcome_vector(glossy=r, straight=t, absorb=a)
+
+
+GLISUR_DIELECTRIC = SurfaceType("glisur_dielectric", ("R", "T", "polish"), (GLOSSY, STRAIGHT, ABSORB),
+                                _glisur_dielectric, lambda p, ctx: _glisur_width(p, ctx),
+                                glossy="glisur_dielectric")  # fmt: skip
 
 
 # ------------------------------------------------------------------------------------- reflectors and sensors
@@ -566,6 +583,7 @@ TYPES = (
     DIELECTRIC,
     DIELECTRIC_RT,
     DIELECTRIC_RT_SENSOR,
+    GLISUR_DIELECTRIC,
     REFLECTOR,
     SENSOR,
     PHOTOCATHODE,

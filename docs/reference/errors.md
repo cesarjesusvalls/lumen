@@ -119,8 +119,8 @@ or surface.
 
 | Message | Meaning and fix |
 |---|---|
-| `<what>: model <model> is not supported` · `<what>: finish <finish> is not supported` · `<what>: surface type <type> is not supported` | a surface form outside 0.1's legacy types (refused: ground dielectric_dielectric, backpainted finishes, Geant4's `coated` type, LUT, LUTDAVIS, dichroic). Use a supported form |
-| `<what>: ground dielectric_dielectric (facet refraction) is not supported` | as above |
+| `<what>: model <model> is not supported` · `<what>: finish <finish> is not supported` · `<what>: surface type <type> is not supported` | a surface form outside 0.1's legacy types (refused: unified ground dielectric_dielectric, backpainted finishes, Geant4's `coated` type, LUT, LUTDAVIS, dichroic). Use a supported form |
+| `<what>: unified ground dielectric_dielectric (facet refraction with the unified reflection types) is not supported` | as above; glisur ground dielectric_dielectric is read (GLISUR_DIELECTRIC) |
 | `<what>: <key> is not supported` · `<what>: <key> (<why>) is not supported` | a property lumen does not read (SURFACEROUGHNESS, for example). Remove it, or ask for it |
 | warning `<what>: a user GROUPVEL (not Geant4's own from RINDEX) is not read: photons are timed by RINDEX's group index, unlike Geant4` | the counts are Geant4's; the arrival times in that material follow RINDEX, where Geant4 uses your table ([known limits](../explanation/known-limits.md#a-user-groupvel)) |
 | `<what>: polish <value> outside [0, <max>] (or exactly 1)` · `<what>: sigma_alpha <value> outside [<min>, <max>] (or exactly 0)` | the opticalsurface `value` is outside what float32 resolves (sigma_alpha exactly 0 is read: Geant4 then reflects the lobe about the normal) |

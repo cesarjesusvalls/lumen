@@ -16,7 +16,8 @@ the border surfaces by ordered PV pair, the library entries and which media are 
 4. the material default: the same medium is no boundary (Pass); post without RINDEX absorbs (NoRINDEX); otherwise
    the Fresnel interface of the two indices.
 
-A polished dielectric_dielectric surface (found at 2 or 3) between two PVs of one material is skipped (SameMaterial).
+A polished or ground dielectric_dielectric surface (found at 2 or 3) between two PVs of one material is skipped
+(SameMaterial).
 A surface whose far-side outcome would put the photon into a medium without RINDEX: the Fresnel default absorbs
 (NoRINDEX); a frontpainted transmission is absorbed where it lands (Geant4 transmits, then kills the photon at its
 next step: ``lumen.surfaces.types.into_opaque``); a stacked (coated) type never ends beyond its backing; any other is
@@ -32,7 +33,8 @@ Notes
 -----
 Geant4 10.7 / 11.2: G4OpBoundaryProcess::PostStepDoIt (G4LogicalBorderSurface::GetSurface(pre, post) first, then
 G4LogicalSkinSurface::GetSurface of post's logical volume when post's mother is pre, else pre's; the default
-dielectric_dielectric polished; SameMaterial and Material2 without RINDEX for the polished finish only). The sensor
+dielectric_dielectric polished; SameMaterial and Material2 without RINDEX for the polished and ground finishes
+only). The sensor
 entry and the exit sensors are lumen's reading of a sensitive detector (WCSim's ProcessHits_boundary). Geant4 steps
 into any b thicker than its 1e-12 m tolerance; a float32 geometry merges a b thinner than its band.
 """

@@ -22,6 +22,11 @@ Added:
   normal: surface types `unified_metal_flat`, `dielectric_metal_flat` on a sensor) instead of refused. Such a
   surface, and a glisur ground one of polish 1, has no `sigma_alpha` / `polish` key: Geant4 never reads that value
   there. A calibration that set one of those keys is refused as an unknown key: drop the key.
+- A glisur, ground dielectric_dielectric surface is read (surface type `glisur_dielectric`) instead of refused:
+  Geant4's REFLECTIVITY / TRANSMITTANCE cut, then DielectricDielectric's facet path, a Fresnel reflection or
+  refraction about each GLISUR facet with the photon's polarisation until the photon leaves the surface on either
+  side. Its REFLECTIVITY, TRANSMITTANCE and `polish` are parameters. A unified ground dielectric_dielectric is still
+  refused.
 - A `border_into` sensor volume whose own skin surface detects (EFFICIENCY > 0) is a sensor where Geant4 picks that
   skin (sensor binding entry "skin"), as with nexus's photocathodes, instead of refused.
 - `lumen.detectors.nexus`, the NEXT-100 recipe (`next100`, from nexus's GDML at `LUMEN_DATA/gdml/next100.gdml`): it

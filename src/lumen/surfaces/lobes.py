@@ -14,8 +14,12 @@ differentiable map.
 
 A facet-path lobe (Geant4's facet reflections, repeated until the photon leaves the surface) has no closed-form marginal
 density (``logpdf`` None). It declares its path instead: ``path(p, wi, n, rand) -> (W (k_max, 3), k)`` with
-wo = W[k - 1], and ``path_logpdf(p, wi, n, W, k)``. A polarised phase function also declares its density given the
-photon's Jones vector: ``pol_sample(p, wi, er, ei, rand)`` and ``pol_logpdf(p, wi, er, ei, wo)``.
+wo = W[k - 1], and ``path_logpdf(p, wi, n, W, k)``. A refracting one (``refracts``: facet reflections and
+refractions, Geant4's ground DielectricDielectric) also records which facets refracted:
+``path(p, wi, n, rand) -> (W, k, C, ended)``, ``path_logpdf(p, wi, n, W, k, C)`` and ``path_state(p, wi, n, W, k, C)
+-> (er, ei)``, the photon's state after the path; it ends on either side of the surface. A polarised phase function
+also declares its density given the photon's Jones vector: ``pol_sample(p, wi, er, ei, rand)`` and
+``pol_logpdf(p, wi, er, ei, wo)``.
 """
 
 import math
@@ -48,6 +52,8 @@ class Lobe:
     pol_sample: Callable | None = None
     pol_logpdf: Callable | None = None
     domains: dict = field(default_factory=dict)  # parameter -> (lo, hi): an edge makes part of the lobe impossible
+    refracts: bool = False
+    path_state: Callable | None = None
 
     def __repr__(self):
         """Show the lobe's name."""

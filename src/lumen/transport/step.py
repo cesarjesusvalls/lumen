@@ -21,7 +21,7 @@ from lumen._core import rng
 from lumen._core.safe import unit
 from lumen.rules import navigation
 from lumen.surfaces import facets, polar
-from lumen.surfaces.outcomes import DELTA, DETECT, FAR_SIDE, STRAIGHT, TERMINAL
+from lumen.surfaces.outcomes import DELTA, DETECT, STRAIGHT, TERMINAL
 from lumen.transport import estimator, medium, state
 from lumen.transport import moving_source as ms
 from lumen.transport import surface_event as se
@@ -364,14 +364,15 @@ def _surface_event(model, ops, ph, sc):
     w_if = se.outcome_weight(ph.w, sc, delta_o, bool(cfg.edge_rows))
     nrm = q["normal"]
     width = {"tables": ops.tables["unified"]}
-    lb = se._Lobes(E.wi, E.n, E.er, E.ei, {"sigma_alpha": sc.live_eval.sigma_alpha, **width},
-                   {"sigma_alpha": sc.sigma_r, **width}, sc.rand["lobe"], ops.reference is None, moving)  # fmt: skip
+    live = {"sigma_alpha": sc.live_eval.sigma_alpha, "n1": ctx["n1"], "n2": ctx["n2"], **width}
+    ref = {"sigma_alpha": sc.sigma_r, "n1": sg(ctx["n1"]), "n2": sg(ctx["n2"]), **width}
+    lb = se._Lobes(E.wi, E.n, E.er, E.ei, live, ref, sc.rand["lobe"], ops.reference is None, moving)
     cross = (ph.d, nrm, ctx["n1"] / ctx["n2"], (ctx["er"], ctx["ei"], sc.live_eval.amps8))
     d_new, w_lobe, er_n, ei_n, *sens = se.outcome_direction(tables, sc.stype, os_, cross, lb)
     arrays_of = medium.spectrum_arrays(model, ops)
     lam2, dt = se.reemission(tables, sc.stype, os_, (ph.lam, sc.live_eval.tau), sc.rand["reemit"], arrays_of)
     d_new = unit(d_new)  # no norm drift over many bounces
-    far = jnp.asarray(FAR_SIDE)[os_] & sc.drawn
+    far = se.far_side(tables, sc.stype, os_, sc.drawn, d_new, nrm)
     ok = q["hit"] & sc.drawn & (sc.stype >= 0)
     x_hit = ph.x + sc.dist * ph.d
     layer = jnp.int32(0)
@@ -479,7 +480,7 @@ def _advance(model, sc, nx):
     # last the one before the visible crossing, located between); a surface outcome that continues beyond takes the
     # volume after (a layered surface's far side: the remembered one), a reflection the one it was located in
     vol_b = jnp.where(sc.s < q["t_pass0"], q["vol_start"], jnp.where(sc.s > q["t_pass1"], q["vol_before"], -1))
-    after = jnp.asarray(FAR_SIDE)[sc.os_] & sc.drawn
+    after = se.far_side(model.tables, sc.stype, sc.os_, sc.drawn, nx.d, q["normal"])
     if model.stacked:
         stk = se.is_stack(model.tables, sc.stype)
         after = jnp.where(stk, (nx.layer == 0) & (jnp.sum(nx.d * q["normal"]) < 0.0), after)
