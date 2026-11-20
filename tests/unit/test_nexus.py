@@ -59,7 +59,7 @@ def test_tpb_and_meshes(result):
             assert optics.surface(s).surface_type is legacy.UNIFIED_METAL_FLAT, name  # sigma_alpha 0
 
 
-def test_unsupported_surfaces_are_refused_by_name(result):
+def test_every_surface_reads(result):
     refused = {}
     for name, s in result.detector_file.surfaces.items():
         if optics.nonzero(s.properties, "EFFICIENCY"):
@@ -68,8 +68,10 @@ def test_unsupported_surfaces_are_refused_by_name(result):
             optics.surface(s)
         except optics.OpticsRefused as err:
             refused[name.split("0x")[0]] = str(err)
-    assert sorted(refused) == ["SIPM_BOARD_MASK_OPSURF"]
-    assert "sigma_alpha 1.0" in refused["SIPM_BOARD_MASK_OPSURF"]
+    assert refused == {}
+    mask = next(s for n, s in result.detector_file.surfaces.items() if n.startswith("SIPM_BOARD_MASK_OPSURF"))
+    e = optics.surface(mask)  # no value given in nexus: G4OpticalSurface's default sigma_alpha, 1 rad
+    assert e.surface_type is legacy.UNIFIED_METAL and e.params["sigma_alpha"] == 1.0
 
 
 def test_tpb_coatings_are_glisur_facet_refraction(result):

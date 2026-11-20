@@ -95,8 +95,9 @@ def test_sigma_alpha_zero_reflects_the_lobe_about_the_normal():
                                               CTX))  # fmt: skip
     assert np.allclose(p[SPECULAR], u[SPECULAR] + u[GLOSSY]) and np.allclose(p[DIFFUSE], u[DIFFUSE])
     assert rules.surface(_surface(0.1)).surface_type is legacy.UNIFIED_METAL
-    with pytest.raises(rules.OpticsRefused, match=r"outside \[0.005, 0.5\] \(or exactly 0\)"):
-        rules.surface(_surface(1.0))
+    assert rules.surface(_surface(1.0)).surface_type is legacy.UNIFIED_METAL  # G4OpticalSurface's default value
+    with pytest.raises(rules.OpticsRefused, match=r"outside \[0.005, 1.0\] \(or exactly 0\)"):
+        rules.surface(_surface(1.2))
 
 
 def test_sigma_alpha_zero_on_a_sensor():

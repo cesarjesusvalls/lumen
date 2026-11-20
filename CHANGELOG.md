@@ -27,6 +27,8 @@ Added:
   refraction about each GLISUR facet with the photon's polarisation until the photon leaves the surface on either
   side. Its REFLECTIVITY, TRANSMITTANCE and `polish` are parameters. A unified ground dielectric_dielectric is still
   refused.
+- A unified sigma_alpha up to 1 rad is read (was 0.5): G4OpticalSurface's default value, which a surface built
+  without one (nexus's SiPM board mask) has.
 - A `border_into` sensor volume whose own skin surface detects (EFFICIENCY > 0) is a sensor where Geant4 picks that
   skin (sensor binding entry "skin"), as with nexus's photocathodes, instead of refused.
 - `lumen.detectors.nexus`, the NEXT-100 recipe (`next100`, from nexus's GDML at `LUMEN_DATA/gdml/next100.gdml`): it

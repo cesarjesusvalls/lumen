@@ -49,7 +49,7 @@ from lumen.surfaces.lobes import Lobe
 sg = jax.lax.stop_gradient
 HALF_PI = 0.5 * math.pi
 FACETS_MAX = 10  # facets per path: a path still pointing into the surface after these has weight 0
-FACET_TRIES = 64  # facet draws per facet: after these (probability < 1e-12) the last draw is kept
+FACET_TRIES = 128  # facet draws per facet: after these (probability < 1e-19 up to sigma_alpha 1) the last draw is kept
 LOG_TINY = math.log(1e-30)  # a log density off the support
 UP = (0.0, 0.0, 1.0)  # the local normal
 INDEX_MATCH = 1e-6  # |na - nb| / max(na, nb) at or below this: a facet refraction keeps the direction
@@ -61,7 +61,7 @@ def _up():
 
 # unified's tables: F on (x, log sigma), x uniform on [0, 1]; log sigma = log(1/4) + j log(2)/8, j in [J_LO, J_HI]
 TABLE_NX = 257
-TABLE_Y0, TABLE_DY, TABLE_J_LO, TABLE_J_HI = math.log(0.25), math.log(2.0) / 8.0, -52, 12
+TABLE_Y0, TABLE_DY, TABLE_J_LO, TABLE_J_HI = math.log(0.25), math.log(2.0) / 8.0, -52, 20
 TABLE_NY = TABLE_J_HI - TABLE_J_LO + 1
 _GX, _GW = np.polynomial.legendre.leggauss(16)
 
@@ -475,7 +475,7 @@ def _dielectric_lobe(name):
                 path_state=lambda p, wi, n, W, k, C: glisur_dielectric_scan(p, wi, n, W, k, C)[1:])  # fmt: skip
 
 
-# Geant4's unified lobe (width sigma_alpha, valid in [0.005, 0.5]) and GLISUR's (width r = 1 - polish, carried under
+# Geant4's unified lobe (width sigma_alpha, valid in [0.005, 1]) and GLISUR's (width r = 1 - polish, carried under
 # the name "sigma_alpha"); chosen by the surface type's ``glossy`` name. GLISUR_DIELECTRIC's path reads the indices
 # and the state too (``n1``, ``n2``, ``er``, ``ei``).
 UNIFIED = _facet_path_lobe("unified", unified_facet, unified_facet_logpdf)

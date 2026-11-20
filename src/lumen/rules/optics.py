@@ -91,7 +91,7 @@ from lumen.units import HC
 
 # the facet lobes' admissible widths (the surface types name them)
 GLISUR_R_MIN = 0.01  # the smallest 1 - polish of a GLISUR facet path
-SIGMA_MIN, SIGMA_MAX = 0.005, 0.5  # rad: the unified facet lobe's sigma_alpha range
+SIGMA_MIN, SIGMA_MAX = 0.005, 1.0  # rad: the unified facet lobe's sigma_alpha range (1: G4OpticalSurface's default)
 
 C_MM_PER_NS = 299.792458  # Geant4's c_light, mm / ns (GROUPVEL is in mm / ns)
 GROUPVEL_RTOL = 2e-3  # an exported GROUPVEL's tolerance (6 printed digits, the RINDEX rounding through dn / d log E)
