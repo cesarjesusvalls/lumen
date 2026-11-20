@@ -6,6 +6,7 @@
   beyond the surface, and the (dz, |phi|) histogram of the last direction, by a two-sample chi2.
 - Reweighting: paths drawn at one polish (one index) and weighted by the live / reference path density reproduce the
   paths drawn at the other, the premise of every derivative through the facet path.
+- The path density's derivatives in the polish and both indices (float32 AD against float64 differences).
 - The surface type reads Geant4's R + T cut; through the photon step a path ends on either side of the surface: the
   facet toy's rings against Geant4's.
 """
@@ -19,6 +20,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
+from jax.experimental import enable_x64
 from scipy import stats
 
 from lumen._core import rng
@@ -197,3 +199,50 @@ def test_the_step_sends_each_path_to_its_side(tmp_path):
         ref, launched = g["rings"].astype(np.float64), int(g["launched"])
     chi2, ndf = two_sample_chi2(ours, ref, n, launched)
     assert stats.chi2.sf(chi2, ndf) > P_MIN, (chi2, ndf)
+
+
+@pytest.mark.parametrize("which", ["sigma_alpha", "n1", "n2"])
+def test_the_path_density_derivative_is_exact(which):
+    """d log p(path) / d th at value (1 + th) on held paths: float32 AD (as the step computes it) against float64
+    central differences (a float32 difference of the same function is biased by its rounding). The Fresnel amplitudes
+    are complex64 in float64 too, so the indices' difference takes a step of 1e-3 (their rounding over 1e-6 is 0.2
+    on a derivative of 10); the polish's 1e-5 (at 1e-3 its truncation is 5e-3)."""
+    n = 512
+    rs = np.random.default_rng(0)
+    wi = rs.normal(size=(n, 3))
+    wi[:, 2] = -np.abs(wi[:, 2])
+    wi /= np.linalg.norm(wi, axis=1, keepdims=True)
+    er = np.cross(wi, rs.normal(size=(n, 3)))
+    er /= np.linalg.norm(er, axis=1, keepdims=True)
+    rand = (rs.integers(0, 2**23, size=(n, 3)) + 0.5) * 2.0**-23
+    base = dict(sigma_alpha=0.99, n1=1.0, n2=1.67)
+
+    def params(dtype, th, e):
+        return {k: jnp.asarray(v, dtype) * (1 + th if k == which else 1) for k, v in base.items()} | {
+            "er": e.astype(dtype), "ei": jnp.zeros_like(e).astype(dtype)}  # fmt: skip
+
+    def draw(w, e, r):
+        return facets.glisur_dielectric_path(params(F32, 0.0, e), w, NZ, r)
+
+    W, k, C, ended = jax.vmap(draw)(jnp.asarray(wi, F32), jnp.asarray(er, F32), jnp.asarray(rand, F32))
+    assert bool(np.all(np.asarray(ended)))
+
+    def lp(dtype):
+        def f(th, w, e, Wp, kp, Cp):
+            return facets.glisur_dielectric_scan(params(dtype, th, e), w.astype(dtype), NZ.astype(dtype),
+                                                 Wp.astype(dtype), kp, Cp)[0]  # fmt: skip
+
+        return jax.vmap(f, in_axes=(None, 0, 0, 0, 0, 0))
+
+    args = (jnp.asarray(wi, F32), jnp.asarray(er, F32), W, k, C)
+    ad = np.asarray(jax.vmap(jax.grad(lambda th, *a: lp(F32)(th, *[x[None] for x in a])[0]),
+                             in_axes=(None, 0, 0, 0, 0, 0))(F32(0.0), *args))  # fmt: skip
+    with enable_x64():
+        a64 = (jnp.asarray(wi), jnp.asarray(er), jnp.asarray(np.asarray(W), jnp.float64), k, C)
+        h = 1e-5 if which == "sigma_alpha" else 1e-3
+        fd = (
+            np.asarray(lp(jnp.float64)(jnp.float64(h), *a64)) - np.asarray(lp(jnp.float64)(jnp.float64(-h), *a64))
+        ) / (2 * h)
+    d = ad - fd
+    scale = max(float(np.sqrt(np.mean(fd * fd))), 1.0)
+    assert float(np.sqrt(np.mean(d * d))) < 1e-3 * scale, (which, float(np.sqrt(np.mean(d * d))), scale)
