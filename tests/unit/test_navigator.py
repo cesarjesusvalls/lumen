@@ -566,3 +566,63 @@ def test_a_grazing_entry_at_a_rim_is_in():
     r2 = query(nav, X, Dr, cv, r1["srf"], sn=r1["normal"])
     back = r2["hit"] & (r2["t"] < 1e-3)  # the chord to the far side is ~ 7 cm
     assert back.sum() == 0, (int(back.sum()), r2["t"][back][:5], r2["vol_after"][back][:5])
+
+
+def _coating_scene(z0, t):
+    """A gas box on a backing block whose top face carries a coating of thickness t (its daughter, top faces
+    coincident), the shared face at height z0."""
+    backing = defn("backing", solids.g4_box(0.8, 0.8, 0.1), 3, [("film", np.eye(3), (0.0, 0.0, 0.05 - t / 2))])
+    return make_scene({"world": defn("world", solids.g4_box(6.0, 6.0, 6.0), 1, [
+        ("backing", np.eye(3), (0.0, 0.0, z0 - 0.05)), ("gas", np.eye(3), (0.0, 0.0, z0 + 0.1))]),
+        "backing": backing, "film": defn("film", solids.g4_box(0.8, 0.8, t), 4),
+        "gas": defn("gas", solids.g4_box(0.6, 0.6, 0.2), 2)})  # fmt: skip
+
+
+def test_a_coating_thinner_than_the_band_rule_is_crossed():
+    """at 1.4 m a 3.5 um coating is thinner than four bands: a photon entering it across the face it shares with the
+    gas leaves through its far face 3.5 um / cos deep, not through a zero-length exit at the entry"""
+    z0, t = 1.4, 3.5e-6
+    nav = nav_of(_coating_scene(z0, t))
+    film, backing = nav.defs.index("film"), nav.defs.index("backing")
+    th = np.radians(np.array([0.0, 20.0, 45.0, 70.0]))
+    D = np.stack([np.sin(th), np.zeros_like(th), -np.cos(th)], 1)
+    O_ = np.tile([0.01, 0.02, z0 + 0.01], (len(th), 1))
+    r1 = query(nav, O_, D, locate(nav, O_))
+    assert np.all(np.asarray(r1["vol_after"]) == film), np.asarray(r1["vol_after"])
+    x1 = O_ + np.asarray(r1["t"])[:, None] * D
+    r2 = query(nav, x1, D, np.asarray(r1["vol_after"]), last=np.asarray(r1["srf"]))
+    expect = t / np.cos(th)
+    assert np.all(np.asarray(r2["vol_after"]) == backing), np.asarray(r2["vol_after"])
+    assert np.all(np.abs(np.asarray(r2["t"]) - expect) < 0.5 * expect), (np.asarray(r2["t"]), expect)
+
+
+@pytest.mark.parametrize("depth", [0.35e-6, 1.5e-6])
+def test_a_start_inside_a_coating_heading_out_at_a_grazing_angle_leaves_into_the_gas(depth):
+    """a start on no surface (a bulk event) inside a 3.5 um coating at 1.4 m, heading out at 3.4-30 deg to its face:
+    the photon leaves into the gas across that face, never into the block beside it"""
+    z0, t = 1.4, 3.5e-6
+    nav = nav_of(_coating_scene(z0, t))
+    film, gas = nav.defs.index("film"), nav.defs.index("gas")
+    up = np.array([0.06, 0.2, 0.5])
+    D = np.stack([np.sqrt(1 - up**2), np.zeros_like(up), up], 1)
+    O_ = np.tile([0.01, 0.02, z0 - depth], (len(up), 1))
+    r = query(nav, O_, D, film, last=-1)
+    assert np.all(np.asarray(r["vol_after"]) == gas), np.asarray(r["vol_after"])
+    assert np.all(np.asarray(r["t"]) < 1.5 * depth / up + 1e-7), (np.asarray(r["t"]), depth / up)
+
+
+@pytest.mark.parametrize("up", [0.06, 0.5])
+def test_a_start_on_a_coating_face_heading_out_crosses_it_with_its_normal(up):
+    """a start on no surface two float32 steps past the face of a 3.5 um coating at 1.4 m (a bulk event in the coating
+    rounded out of it), heading out into the gas: the crossing is that face, with its normal, not the start's own
+    direction"""
+    z0, t = 1.4, 3.5e-6
+    nav = nav_of(_coating_scene(z0, t))
+    film, gas = nav.defs.index("film"), nav.defs.index("gas")
+    D = np.array([[np.sqrt(1 - up**2), 0.0, up]])
+    z = np.nextafter(np.nextafter(np.float32(z0), np.float32(2.0)), np.float32(2.0))
+    O_ = np.array([[0.01, 0.02, z]])
+    r = query(nav, O_, D, film, last=-1)
+    assert int(np.asarray(r["vol_after"])[0]) == gas, np.asarray(r["vol_after"])
+    assert int(np.asarray(r["leaf"])[0]) >= 0, np.asarray(r["leaf"])
+    assert abs(float(np.asarray(r["normal"])[0, 2])) > 0.999, np.asarray(r["normal"])

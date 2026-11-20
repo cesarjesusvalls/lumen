@@ -7,13 +7,21 @@ the float32 resolution of the coordinates, the **band**. The rules, each with th
 - **Tolerance.** Three sites, two forms (one form is on docs/dev/roadmap.md): ``band`` (the query and the CSG
   evaluator: ``8 eps (|x| + |t|) + 1e-9 m``), ``check_step_in`` (the overlap check's step in: ``K_ON`` bands at a
   point) and ``step_band`` (the step's push: ``8 eps max|x| + 1e-9 m``).
-- **Surface identity.** A face within ``K_ON`` bands of the start (perpendicular to it) is the face the photon sits
-  on: the direction decides which side it is on (G4Navigator's fEntering / fExiting). A face that close along the ray
-  but farther perpendicularly is looked for up to ``GRAZE`` times farther (1 / sin(0.25 deg) ~ 229).
+- **Surface identity.** The face of the item the photon sits on stays its face for ``K_ON`` bands along the ray. Another
+  item's face within ``K_ON_OTHER`` bands of the start (perpendicular to it) is a face the photon sits on too, and
+  within ``K_ON_INTERIOR`` bands for a start on no surface (after a bulk event, at a source): the direction decides
+  which side it is on (G4Navigator's fEntering / fExiting), and a start on no surface is located beyond that face
+  along its normal (as under **Exit**). A face that close along the ray but farther perpendicularly is looked for up
+  to ``GRAZE`` times farther (1 / sin(0.25 deg) ~ 229). The far face of a volume thicker than ``K_ON_OTHER`` bands is
+  never taken for the near one.
 - **Entry tie.** Coincident daughter faces: the lowest-index daughter is entered (G4VoxelNavigation::ComputeStep).
 - **Exit.** Leaving a volume, the photon is located in the highest-index sibling holding the point, then down into
   its daughters (G4Navigator::LocateGlobalPointAndSetup, LevelLocate). Coincident siblings (one solid, one pose):
-  the lowest index fills the region; leaving it the photon is located in the highest-index other one.
+  the lowest index fills the region; leaving it the photon is located in the highest-index other one. The point
+  located is one step past the crossing along the ray, or along the face's normal on the side the ray goes to when
+  the crossing is grazing (|d . n| below ``NORMAL_LOCATE_COS``), where a step along the ray barely leaves the face.
+  A zero-length crossing found by the start's membership alone (a start a float32 step past a face) is the face
+  first met back along the ray, so the boundary process gets its normal.
 - **StepTooSmall.** The zero-length step out of a coincident partner just located in runs no boundary process: a
   straight continue event (G4OpBoundaryProcess's StepTooSmall status).
 - **Facet rule.** A mesh facet is met only by a ray entering it (G4TriangularFacet::Intersect, DistanceToIn): a start
@@ -38,7 +46,10 @@ import numpy as np
 FLOAT32_EPS = float(np.finfo(np.float32).eps)
 BAND_ULPS = 8.0  # the band: this many float32 ulps of the coordinates
 BAND_FLOOR = 1e-9  # m: the band's floor (a point at the origin)
-K_ON = 4  # a face within this many bands of the start (perpendicular) is AT it
+K_ON = 4  # the face sat on stays the photon's face for this many bands along the ray
+K_ON_OTHER = 2  # another item's face within this many bands of a start on a surface (perpendicular) is AT it
+K_ON_INTERIOR = 0.5  # ... of a start on no surface
+NORMAL_LOCATE_COS = 0.5  # a crossing with |d . n| below this is located beyond its face along the normal
 GRAZE = 256  # ... looked for up to this many times farther along the ray (1 / sin(0.25 deg) ~ 229)
 FACET_BEHIND_BANDS = 0.25  # a start behind a facet's plane by at most this many bands is on it
 FACET_SHORT_ULPS = 2.0  # a mesh hit's t from its plane, this many ulps short of it

@@ -50,6 +50,19 @@ Fixed:
   one of the 100 draws lands there. Light that a shifter absorbs again (TPB's own blue emission, which TPB absorbs
   below 440 nm in nexus's NEXT-100) is no longer shifted back to bluer wavelengths: NEXT-100's PMTs see 3 to 5 %
   more light. A shifter that only absorbs light bluer than all of its emission is unchanged bit for bit.
+- A volume thinner than four float32 bands (about 32 float32 steps of the coordinates: 2 um at 0.5 m, 5 um at 1.4 m)
+  could be crossed as if it were not there: a photon entering it across a face it shares with another volume took
+  its far face for the face it had just crossed, and a photon starting inside it (after a bulk event) within that
+  distance of a face was put on the face and then located by a step along its direction, at a grazing angle in the
+  volume beside it. Another volume's face is now the face a photon sits on within two bands (half a band for a
+  photon on no surface), and a photon on no surface put on a face, or crossing a face at a grazing angle, is located
+  beyond it along its normal.
+- A photon starting a float32 step past a face (a bulk event in a thin coating, rounded out of it) crossed it with
+  no face known, and the boundary process used the photon's reversed direction as the normal: a glisur coating let
+  such light out as at normal incidence. The face is now the first one met back along the ray. With the entry above,
+  NEXT-100's light agrees with nexus (with the photons' polarization transverse) to 0.1 % at the PMTs and 0.5 % at
+  the SiPMs, from 12 to 23 % low. Other detectors change only for photons that start or cross within a few bands of
+  a face: Super-K's light is unchanged to 2e-6.
 
 ## 0.1.3 (2026-11-11)
 

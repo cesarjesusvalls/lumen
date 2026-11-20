@@ -340,7 +340,7 @@ class Navigator:
     def _on_face(self, ctx, i, fr, kn_i):
         """Return whether the start is on the first change's face (the on-face rule: K_ON bands, the normal decides)."""
         dt = fr["t"] - ctx.t_lo
-        lim = rules.K_ON * ctx.band
+        lim = jnp.where(ctx.last >= 0, F32(rules.K_ON_OTHER), F32(rules.K_ON_INTERIOR)) * ctx.band
 
         def grazing():  # between lim and lim / sin(0.25 deg): the normal decides
             g = self.hit_grad(i, jnp.maximum(fr["leaf"], 0), fr["face"], ctx.od + fr["t"] * ctx.dd)
@@ -369,6 +369,14 @@ class Navigator:
                                 skip=(lf_on, sd[2], sd[4], t_hi), on_face=(lf_on, sd[4], t_on))  # fmt: skip
         return r, kn_i
 
+    def _face_behind(self, ctx, i):
+        """Return (leaf, face) of volume i's first membership change back along the ray from the start, (-1, -1) if
+        none within ``GRAZE`` times the on-face distance."""  # noqa: D205, D209
+        k, ol, dl = self.frame(i, ctx.od, ctx.dd)
+        r = self.E.first_change(k, ol + ctx.t_lo * dl, -dl, F32(0.0), F32(rules.GRAZE * rules.K_ON) * ctx.band)
+        fs = r["first"]
+        return jnp.where(fs["hit"], fs["leaf"], I32(-1)), jnp.where(fs["hit"], fs["face"], I32(-1))
+
     def _unit_visit(self, ctx, i, b, is_own):
         """Return the best event after volume i: own (item 0) its first exit, a daughter its first entry.
 
@@ -390,6 +398,9 @@ class Navigator:
         # did; else none
         lf = jnp.where(zero, jnp.where(by_s, sd[1], jnp.where(on, fr["leaf"], I32(-1))), lf)
         f = jnp.where(zero, jnp.where(by_s, sd[2], jnp.where(on, fr["face"], I32(-1))), f)
+        # a zero-length event on no known face (the start a float32 step past the face): the face is the first change
+        # back along the ray
+        lf, f = pick(zero & (lf < 0), lambda: self._face_behind(ctx, i), lambda: (lf, f))
         te = jnp.where(zero, ctx.t_lo, jnp.where(h, t, F32(INF)))
         # own is item 0: it sets the best (its exit, INF if none); a daughter beats it on a tie (the entry-tie rule)
         better = is_own | ((zero | h) & rules.entry_wins(te, i, b))
@@ -497,8 +508,9 @@ class Navigator:
             en_ = l_kn & (s_ * jnp.where(l_o, F32(1.0), F32(-1.0)) < 0)
         return l_it, (l_kn, l_lf, l_fc, s_, en_)
 
-    def _next_volume(self, q, ev, v, vi, step):
-        """Return (the volume after the round's event, whether it was relocated, StepTooSmall)."""
+    def _next_volume(self, q, ev, v, vi, step, ray):
+        """Return (the volume after the round's event, whether it was relocated, StepTooSmall); ``ray`` the
+        (origin, direction, t) the volume after it is located at."""  # noqa: D205, D209
         D = self.dev()
         OUT = I32(self.n)
         t_c, u_in, is_own, z_in, t_lo, band, l_it, it, hit = ev
@@ -516,7 +528,7 @@ class Navigator:
         # leaving a volume with a coincident partner: located in the partner (zero-length), as Geant4 does
         co = jnp.where(~go_in & has_own & ~stt, D["coin_hi"][vi], I32(-1))
         nxt, moved = pick(hit & ~(go_in & is_ch) & (co < 0),
-                          lambda: self._settle(nxt, (q.od, q.dd, t_c + step), unit_x, step + band),
+                          lambda: self._settle(nxt, ray, unit_x, step + band),
                           lambda: (nxt, jnp.bool_(False)))  # fmt: skip
         nxt = jnp.where(hit & (co >= 0), co, nxt)
         return nxt, moved, stt
@@ -555,9 +567,20 @@ class Navigator:
         ctx = _Enter(q.od, q.dd, t_lo, q.tmax, l_it, band, side, None)
         (t_c, u_in, l_in, f_in, z_in, is_own), nb1, ne1 = self.enter(v, ctx, own=has_own, vi=vi)
         hit = t_c < q.tmax
-        nxt, moved, stt = self._next_volume(q, (t_c, u_in, is_own, z_in, t_lo, band, l_it, it, hit), v, vi, step)
-        v_refl = self._reflect_volume(q, (t_c, is_own, hit, step, band), v, vi, nxt)
         item = jnp.where(~is_own, u_in, vi)
+        # a start on no surface put on a face, or a grazing crossing: located one step beyond the face along its
+        # normal, on the side the direction goes to
+        x_c = q.od + t_c * q.dd
+        known = hit & (l_in >= 0) & (item < self.CH0)
+        g = pick(known, lambda: self.hit_grad(item, jnp.maximum(l_in, 0), f_in, x_c), lambda: q.dd)
+        gd = jnp.dot(g, q.dd)
+        gn = jnp.maximum(jnp.linalg.norm(g), NORM_FLOOR)
+        grazing = jnp.abs(gd) < F32(rules.NORMAL_LOCATE_COS) * gn
+        on_n = known & (gd != 0.0) & ((z_in & (it == 0) & (l_it < 0)) | grazing)
+        n_go = g / gn * jnp.where(gd < 0.0, F32(-1.0), F32(1.0))
+        ray = (jnp.where(on_n, x_c, q.od), jnp.where(on_n, n_go, q.dd), jnp.where(on_n, step, t_c + step))
+        nxt, moved, stt = self._next_volume(q, (t_c, u_in, is_own, z_in, t_lo, band, l_it, it, hit), v, vi, step, ray)
+        v_refl = self._reflect_volume(q, (t_c, is_own, hit, step, band), v, vi, nxt)
         after = D["cls"][jnp.where(hit, nxt, v)]
         vis = hit & (after != cur)
         if q.pass_tab is not None:  # a pass pair (one medium, the PASS kernel) is no vertex either
