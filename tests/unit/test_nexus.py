@@ -1,9 +1,11 @@
-"""lumen.detectors.nexus: NEXT-100 from nexus's GDML (LUMEN_DATA/gdml/next100.gdml; skipped without it) -- the sensors
-nexus counts (60 PMTs, 3584 SiPMs, by their detecting skins) with nexus's sensor ids, the TPB and mesh readings, and
-the surfaces lumen does not support yet, refused by name."""
+"""lumen.detectors.nexus: NEXT-100 from nexus's GDML (LUMEN_DATA/gdml/next100.gdml, with nexus's dielectric grids;
+skipped without it) -- the sensors nexus counts (60 PMTs, 3584 SiPMs, by their detecting skins) with nexus's sensor
+ids, the TPB, copper plate and grid readings, and every surface read."""
 
+import numpy as np
 import pytest
 
+import lumen
 from lumen import _env
 from lumen.build import library as glue
 from lumen.build import lowering
@@ -11,6 +13,7 @@ from lumen.build import tree as vtree
 from lumen.detectors import nexus
 from lumen.format.sensorsets import SensorSet
 from lumen.gdml import importer
+from lumen.geometry import tracked
 from lumen.rules import optics
 from lumen.surfaces import types as legacy
 
@@ -47,7 +50,7 @@ def test_sensors_and_nexus_ids(result):
     assert isinstance(result.sensor_sets["default"], SensorSet)
 
 
-def test_tpb_and_meshes(result):
+def test_tpb_and_copper_plate(result):
     df = result.detector_file
     tpb = next(m for n, m in df.materials.items() if n.startswith("TPB"))
     e = optics.medium(tpb)
@@ -55,8 +58,20 @@ def test_tpb_and_meshes(result):
     assert wls.name == "wls" and wls.time_profile == "delta"  # nexus sets no time profile: Geant4's default
     assert e.params["wls"]["yield"] == 0.65 and e.params["wls"]["tau"] == 1.2
     for name, s in df.surfaces.items():
-        if name.startswith(("GAS_CATHODE_MESH", "GAS_EL_MESH", "GAS_COPPER_PLATE")):
+        if name.startswith("GAS_COPPER_PLATE"):
             assert optics.surface(s).surface_type is legacy.UNIFIED_METAL_FLAT, name  # sigma_alpha 0
+
+
+def test_grids_are_slabs_of_gas_absorbing_as_the_mesh(result):
+    """nexus's dielectric grids: each mesh a 0.1 mm slab with the gas's RINDEX and ABSLENGTH -t / ln T, T the mesh's
+    transparency (Next100FieldCage.cc: cathode 0.95, EL 0.90)"""
+    mats = result.detector_file.materials
+    gxe = next(m for n, m in mats.items() if n.startswith("GXe"))
+    for prefix, transparency in (("cath_grid_mat", 0.95), ("el_grid_mat", 0.90)):
+        m = next(m for n, m in mats.items() if n.startswith(prefix))
+        np.testing.assert_allclose(np.exp(-1e-4 / np.asarray(m.properties["ABSLENGTH"].value)), transparency, rtol=1e-5)
+        np.testing.assert_array_equal(m.properties["RINDEX"].value, gxe.properties["RINDEX"].value)
+        assert optics.medium(m).medium.absorption is not None
 
 
 def test_every_surface_reads(result):
@@ -80,3 +95,11 @@ def test_tpb_coatings_are_glisur_facet_refraction(result):
                             "tpb_sapphire_surf")):  # fmt: skip
             e = optics.surface(s)
             assert e.surface_type is legacy.GLISUR_DIELECTRIC and e.params["polish"] == 0.01, name
+
+
+def test_it_loads_and_its_navigator_builds(tmp_path):
+    """the dielectric grids keep the surface codes within the navigator's int32 numbering"""
+    with pytest.warns(UserWarning):
+        det = lumen.load(lumen.convert(_gdml(), nexus.NEXT100, tmp_path / "next100.lumen"))
+    assert len(det.parts.optics.sensor_pvs) == 3644
+    assert tracked.from_parts(det.parts) is not None

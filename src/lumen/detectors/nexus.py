@@ -1,5 +1,8 @@
 """The NEXT-100 recipe, for the GDML of nexus's ``Next100OpticalGeometry`` (next-exp/nexus e798170).
 
+The GDML is written with ``/Geometry/Next100/use_dielectric_grid true``: each cathode and EL mesh is one slab of the
+gas absorbing as the mesh's transparency.
+
 The sensors are the PMT_PHOTOCATHODE and SIPM_S13372_SENSAREA volumes, detected where a photon is absorbed by their
 own skin surface, with that surface's EFFICIENCY, as nexus counts them (its SensorSD on those volumes, with
 ``/process/optical/boundary/setInvokeSD``). The detector volume is GAS, the outermost xenon volume. The id map

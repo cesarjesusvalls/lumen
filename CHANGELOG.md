@@ -37,9 +37,10 @@ Added:
   Geant4's NoRINDEX does, instead of being refused.
 - A `border_into` sensor volume whose own skin surface detects (EFFICIENCY > 0) is a sensor where Geant4 picks that
   skin (sensor binding entry "skin"), as with nexus's photocathodes, instead of refused.
-- `lumen.detectors.nexus`, the NEXT-100 recipe (`next100`, from nexus's GDML at `LUMEN_DATA/gdml/next100.gdml`): it
-  converts, with nexus's sensor ids; loading it is refused until the surfaces listed in the shipped-detectors page are
-  supported.
+- `lumen.detectors.nexus`, the NEXT-100 recipe (`next100`, from nexus's GDML at `LUMEN_DATA/gdml/next100.gdml`,
+  written with nexus's dielectric grids, `/Geometry/Next100/use_dielectric_grid true`, as `refs/gdml/export.sh`
+  does): it converts, loads and tracks, with nexus's sensor ids. A GDML with the meshes built hole by hole loads, but
+  its 165,000 holes overflow the navigator's surface codes: write it again with the dielectric grids.
 
 ## 0.1.3 (2026-11-11)
 

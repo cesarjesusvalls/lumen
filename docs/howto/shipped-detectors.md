@@ -10,11 +10,12 @@ cache (`LUMEN_CACHE`), and loads it; later loads reuse the converted file.
 | `annie` | ANNIE (ANNIE's WCSim) | its PMT types (LAPPDs are not sensors yet: [known limits](../explanation/known-limits.md)) | ANNIE's WCSim tables, per tube type |
 | `sbnd` | SBND (sbndcode's full-simulation GDML) | PMTs and X-ARAPUCAs, counted on entry | none: counting sensors |
 | `microboone` | MicroBooNE (LArSoft's public optics) | the optical-detector discs, counted on entry | none: counting sensors |
-| `next100` | NEXT-100 (nexus's optical geometry), **loads but does not track yet** (below) | 60 PMTs and 3584 SiPMs, detected at their photocathode skins | none: the surfaces' EFFICIENCY, as in nexus |
+| `next100` | NEXT-100 (nexus's optical geometry, with nexus's dielectric grids: below) | 60 PMTs and 3584 SiPMs, detected at their photocathode skins | none: the surfaces' EFFICIENCY, as in nexus |
 
-NEXT-100 converts and loads (`lumen.load("next100")`), with nexus's sensor ids in its id map, but the navigator
-cannot number the surfaces of the EL and cathode meshes' 165,000 hexagonal holes (its int32 surface codes
-overflow), so no photon is tracked through it yet.
+NEXT-100's GDML is written with nexus's `/Geometry/Next100/use_dielectric_grid true`: the cathode and EL meshes
+are each one thin slab of the gas that absorbs as the mesh's transparency, instead of 165,000 hexagonal holes,
+whose surfaces lumen's navigator cannot number (its int32 surface codes overflow). A Geant4 run to compare with must
+use the same option.
 
 ## Where the GDML comes from
 
@@ -22,7 +23,7 @@ The GDML files and the inputs some recipes read (ANNIE's WCSim sources, SBND's c
 repository. lumen reads them from a data directory named by `LUMEN_DATA`, at fixed paths below it: `gdml/sk.gdml`,
 `gdml/wcte.gdml`, `gdml/annie_v2.gdml`, `gdml/sbnd_v02_00_full_simulation.gdml`, `gdml/microboone.gdml`,
 `gdml/next100.gdml` (nexus has no GDML of its own: write one from nexus with Geant4's `/persistency/gdml/write`,
-`lumen.detectors.nexus` says how), and for SBND
+as `refs/gdml/README.md` says), and for SBND
 `gdml/sbnd_pds_mapping.json`, for ANNIE `wcsim/annie_e88314b` and `wcsim/annie_tuning_parameters.mac`. Each comes
 from its experiment's public software (WCSim, ANNIE's WCSim, sbndcode, LArSoft); a missing file raises an error
 naming it.

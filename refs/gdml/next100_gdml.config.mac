@@ -1,10 +1,12 @@
-## As macros/NEXT100_S1_LT.config.mac (15 bar), one photon per event; no event is run
+## As macros/NEXT100_S1_LT.config.mac (15 bar), one photon per event, with the EL and cathode grids as nexus's
+## dielectric grids (one slab of xenon each, absorbing as the mesh's transparency); no event is run
 /run/verbose 0
 /event/verbose 0
 /tracking/verbose 0
 /process/em/verbose 0
 /nexus/random_seed 1
 /Geometry/Next100/pressure 15. bar
+/Geometry/Next100/use_dielectric_grid true
 /Generator/ScintGenerator/region ACTIVE
 /Generator/ScintGenerator/nphotons 1
 /control/execute macros/physics/IonizationElectron.mac
